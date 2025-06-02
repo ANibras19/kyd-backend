@@ -1,5 +1,4 @@
 # datadive_routes.py
-@datadive.route('/upload-dataset', methods=['POST'])
 
 from flask import Blueprint, request, jsonify
 import pandas as pd
