@@ -77,6 +77,7 @@ def login():
             if password_match:
                 return jsonify({
                     "message": "Login successful",
+                    "plan": user['plan'],
                     "first_name": user["first_name"],
                     "last_name": user["last_name"],
                     "email": user["email"]
