@@ -1,5 +1,4 @@
 from flask import Flask, request, jsonify
-from datadive_routes import datadive
 from werkzeug.security import generate_password_hash
 from werkzeug.security import check_password_hash
 from flask_cors import CORS
@@ -7,6 +6,8 @@ import mysql.connector
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
+
+from datadive_routes import datadive
 app.register_blueprint(datadive)
 
 # MySQL connection details
