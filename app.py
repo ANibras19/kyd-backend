@@ -1,5 +1,4 @@
 from flask import Flask, request, jsonify
-from flask_cors import CORS, cross_origin
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from flask_cors import CORS
@@ -127,7 +126,6 @@ def update_plan():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/upload', methods=['POST'])
-@cross_origin()  # Explicitly allow CORS on this route
 def upload_file():
     file = request.files.get('file')
     if not file:
