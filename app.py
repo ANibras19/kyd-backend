@@ -104,31 +104,107 @@ def update_plan():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+from flask import request, jsonify
+from flask_cors import cross_origin
+from werkzeug.utils import secure_filename
+from sqlalchemy import text
+import pandas as pd
+import io
+
 @app.route('/upload', methods=['POST'])
+@cross_origin()
 def upload_file():
-    file = request.files.get('file')
-    if not file:
-        return jsonify({"error": "No file uploaded"}), 400
-
-    filename = secure_filename(file.filename)
-    filepath = os.path.join(UPLOAD_FOLDER, filename)
-    file.save(filepath)
-
     try:
-        if filename.lower().endswith('.csv'):
-            df = pd.read_csv(filepath)
-        elif filename.lower().endswith(('.xls', '.xlsx')):
-            df = pd.read_excel(filepath)
-        else:
-            return jsonify({"error": "Unsupported file format"}), 400
-    except Exception as e:
-        return jsonify({"error": f"Failed to read file: {str(e)}"}), 500
+        # ─── Validate Input ────────────────────────────────────────────────
+        username = request.form.get('username')
+        if not username:
+            return jsonify({"error": "username required"}), 400
 
-    return jsonify({
-        "columns": df.columns.tolist(),
-        "row_count": len(df),
-        "col_count": len(df.columns)
-    }), 200
+        if 'file' not in request.files:
+            return jsonify({"error": "No file uploaded"}), 400
+
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({"error": "No selected file"}), 400
+
+        filename = secure_filename(file.filename)
+        file_stream = io.BytesIO(file.read())
+
+        # ─── Store File in DB ───────────────────────────────────────────────
+        uploads_tbl = f"{username}_uploads"
+
+        db.session.execute(text(f"""
+            CREATE TABLE IF NOT EXISTS `{uploads_tbl}` (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                filename VARCHAR(255) NOT NULL,
+                upload_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                file_data LONGBLOB
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """))
+
+        db.session.execute(
+            text(f"""
+                INSERT INTO `{uploads_tbl}` (filename, file_data)
+                VALUES (:fn, :blob)
+            """), {'fn': filename, 'blob': file_stream.getvalue()}
+        )
+        db.session.commit()
+
+        # ─── Read File to Extract Columns and Metadata ─────────────────────
+        file_stream.seek(0)
+        sample_df = pd.read_csv(file_stream, nrows=5) if filename.lower().endswith('.csv') \
+            else pd.read_excel(file_stream, nrows=5)
+
+        file_stream.seek(0)
+        full_df = pd.read_csv(file_stream) if filename.lower().endswith('.csv') \
+            else pd.read_excel(file_stream)
+
+        metadata = []
+        groups_dict = {}
+
+        for col in sample_df.columns:
+            series = sample_df[col]
+            full_series = full_df[col]
+
+            if pd.api.types.is_datetime64_any_dtype(series):
+                col_type = "datetime"
+            elif pd.api.types.is_numeric_dtype(series):
+                col_type = "numeric"
+            elif series.nunique() / len(series) < 0.05:
+                col_type = "categorical"
+            else:
+                col_type = "text"
+
+            semantic = None
+            name_lower = col.lower()
+            if "date" in name_lower or "time" in name_lower:
+                semantic = "date"
+            elif "id" in name_lower:
+                semantic = "identifier"
+
+            metadata.append({
+                "name": col,
+                "type": col_type,
+                "semantic": semantic
+            })
+
+            if col_type in ("categorical", "text"):
+                groups_dict[col] = full_series.dropna().astype(str).unique().tolist()
+
+        return jsonify({
+            "columns": sample_df.columns.tolist(),
+            "column_metadata": metadata,
+            "filename": filename,
+            "groups": groups_dict
+        }), 200
+
+    except UnicodeDecodeError:
+        file_stream.seek(0)
+        df = pd.read_csv(file_stream, nrows=5, encoding='latin1')
+        return jsonify({"columns": df.columns.tolist(), "note": "Read using latin1 encoding"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Processing failed: {str(e)}"}), 500
 
 if __name__ == '__main__':
     from waitress import serve
