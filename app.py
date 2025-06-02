@@ -12,13 +12,6 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-@app.after_request
-def add_cors_headers(response):
-    response.headers.add("Access-Control-Allow-Origin", "*")
-    response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization")
-    response.headers.add("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
-    return response
-
 # MySQL config
 db_config = {
     'host': 'enqhzd10cxh7hv2e.cbetxkdyhwsb.us-east-1.rds.amazonaws.com',
@@ -112,7 +105,7 @@ import pandas as pd
 import io
 
 @app.route('/upload', methods=['POST'])
-@cross_origin()
+@cross_origin(origin="https://snazzy-kitten-19cb97.netlify.app")
 def upload_file():
     try:
         # ─── Validate Input ────────────────────────────────────────────────
