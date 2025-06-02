@@ -1,8 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-from sqlalchemy import create_engine, text
+from werkzeug.security import generate_password_hash, check_password_hash
 import pandas as pd
 import mysql.connector
 import os
@@ -11,19 +10,20 @@ import traceback
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-UPLOAD_FOLDER = "uploads"
+# Upload folder
+UPLOAD_FOLDER = 'uploads'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# Global to track last uploaded file
 latest_uploaded_file = None
 
-# MySQL connection details
+# MySQL config
 db_config = {
     'host': 'enqhzd10cxh7hv2e.cbetxkdyhwsb.us-east-1.rds.amazonaws.com',
     'user': 'v4jbqslxdkfz0ox0',
     'password': 'fxawiuzv6nu61c70',
     'database': 'rnqxqwaljdwgx3un'
 }
-
-db_url = f"mysql+mysqlconnector://{db_config['user']}:{db_config['password']}@{db_config['host']}/{db_config['database']}"
-db = create_engine(db_url)
 
 @app.route('/')
 def home():
@@ -36,17 +36,15 @@ def register():
     first_name = data.get('first_name')
     last_name = data.get('last_name')
     email = data.get('email')
-    raw_password = data.get('password')
-    password = generate_password_hash(raw_password)
+    password = generate_password_hash(data.get('password'))
 
     try:
         conn = mysql.connector.connect(**db_config)
         cursor = conn.cursor()
-        query = """
+        cursor.execute("""
             INSERT INTO users (username, first_name, last_name, email, password)
             VALUES (%s, %s, %s, %s, %s)
-        """
-        cursor.execute(query, (username, first_name, last_name, email, password))
+        """, (username, first_name, last_name, email, password))
         conn.commit()
         cursor.close()
         conn.close()
@@ -67,33 +65,26 @@ def login():
     try:
         conn = mysql.connector.connect(**db_config)
         cursor = conn.cursor(dictionary=True)
-        query = """
-            SELECT * FROM users
-            WHERE username = %s OR email = %s
-        """
-        cursor.execute(query, (username_or_email, username_or_email))
+        cursor.execute("""
+            SELECT * FROM users WHERE username = %s OR email = %s
+        """, (username_or_email, username_or_email))
         user = cursor.fetchone()
         cursor.close()
         conn.close()
 
         print("User fetched from DB:", user)
 
-        if user:
-            print("Stored hash:", user['password'])
-            password_match = check_password_hash(user['password'], password)
-            print("Password match result:", password_match)
-
-            if password_match:
-                return jsonify({
-                    "message": "Login successful",
-                    "plan": user['plan'],
-                    "first_name": user["first_name"],
-                    "last_name": user["last_name"],
-                    "email": user["email"]
-                }), 200
+        if user and check_password_hash(user['password'], password):
+            print("Password match result: True")
+            return jsonify({
+                "message": "Login successful",
+                "plan": user['plan'],
+                "first_name": user["first_name"],
+                "last_name": user["last_name"],
+                "email": user["email"]
+            }), 200
 
         return jsonify({"error": "Invalid username/email or password"}), 401
-
     except Exception as e:
         print("Login error:", str(e))
         return jsonify({"error": str(e)}), 500
@@ -110,14 +101,11 @@ def update_plan():
     try:
         conn = mysql.connector.connect(**db_config)
         cursor = conn.cursor()
-        query = "UPDATE users SET plan = %s WHERE email = %s"
-        cursor.execute(query, (plan, email))
+        cursor.execute("UPDATE users SET plan = %s WHERE email = %s", (plan, email))
         conn.commit()
         cursor.close()
         conn.close()
-
         return jsonify({"message": f"Plan updated to {plan}"}), 200
-
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -126,48 +114,25 @@ def upload_file():
     global latest_uploaded_file
 
     username = request.form.get('username')
-    if not username:
-        return jsonify({"error": "username required"}), 400
+    uploaded_file = request.files.get('file')
 
-    file = request.files.get('file')
-    if not file:
-        return jsonify({"error": "No file uploaded"}), 400
+    if not username or not uploaded_file:
+        return jsonify({"error": "Missing username or file"}), 400
 
-    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-    filename = secure_filename(file.filename)
+    filename = secure_filename(uploaded_file.filename)
     filepath = os.path.join(UPLOAD_FOLDER, filename)
-    file.save(filepath)
-
+    uploaded_file.save(filepath)
     latest_uploaded_file = filepath
 
-    uploads_tbl = f"{username}_uploads"
-    ddl = text(f"""
-        CREATE TABLE IF NOT EXISTS `{uploads_tbl}` (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            filename VARCHAR(255) NOT NULL,
-            upload_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            file_data LONGBLOB
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-    """)
-    db.execute(ddl)
-
-    with open(filepath, 'rb') as f:
-        blob = f.read()
-    insert = text(f"""
-        INSERT INTO `{uploads_tbl}` (filename, file_data)
-        VALUES (:fn, :blob)
-    """)
-    db.execute(insert, {'fn': filename, 'blob': blob})
-
     try:
-        if filename.lower().endswith('.csv'):
+        if filename.endswith('.csv'):
             try:
                 df = pd.read_csv(filepath, nrows=5)
                 full_df = pd.read_csv(filepath)
             except UnicodeDecodeError:
                 df = pd.read_csv(filepath, nrows=5, encoding='latin1')
                 full_df = pd.read_csv(filepath, encoding='latin1')
-        elif filename.lower().endswith(('.xls', '.xlsx')):
+        elif filename.endswith(('.xls', '.xlsx')):
             df = pd.read_excel(filepath, nrows=5)
             full_df = pd.read_excel(filepath)
         else:
@@ -176,46 +141,43 @@ def upload_file():
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
+    # Profiling logic
     metadata = []
-    groups_dict = {}
+    groups = {}
     for col in df.columns:
-        series = df[col]
-        full_series = full_df[col]
-        if pd.api.types.is_datetime64_any_dtype(series):
+        s = df[col]
+        full = full_df[col]
+        if pd.api.types.is_datetime64_any_dtype(s):
             col_type = "datetime"
-        elif pd.api.types.is_numeric_dtype(series):
+        elif pd.api.types.is_numeric_dtype(s):
             col_type = "numeric"
-        elif series.nunique() / len(series) < 0.05:
+        elif s.nunique() / len(s) < 0.05:
             col_type = "categorical"
         else:
             col_type = "text"
 
         sem = None
-        name_lower = col.lower()
-        if "date" in name_lower or "time" in name_lower:
+        if "date" in col.lower() or "time" in col.lower():
             sem = "date"
-        elif "id" in name_lower:
+        elif "id" in col.lower():
             sem = "identifier"
 
-        entry = {
+        if col_type in ("categorical", "text"):
+            groups[col] = full.dropna().astype(str).unique().tolist()
+
+        metadata.append({
             "name": col,
             "type": col_type,
             "semantic": sem
-        }
-
-        if col_type in ("categorical", "text"):
-            unique_vals = full_series.dropna().astype(str).unique().tolist()
-            groups_dict[col] = unique_vals
-
-        metadata.append(entry)
+        })
 
     return jsonify({
         "columns": df.columns.tolist(),
         "column_metadata": metadata,
         "filename": filename,
-        "groups": groups_dict
+        "groups": groups
     }), 200
 
 if __name__ == '__main__':
     from waitress import serve
-    serve(app, host="0.0.0.0", port=5000)
+    serve(app, host='0.0.0.0', port=5000)
