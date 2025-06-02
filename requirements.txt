@@ -4,3 +4,5 @@ Flask-SQLAlchemy==3.1.1
 gunicorn==23.0.0
 pandas==2.2.3
 mysql-connector-python==9.2.0
+joblib==1.4.0
+
