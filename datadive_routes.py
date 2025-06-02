@@ -1,116 +1,121 @@
 from flask import Blueprint, request, jsonify
+from flask_cors import cross_origin
+from werkzeug.utils import secure_filename
+import os
 import pandas as pd
-import numpy as np
-import mysql.connector
-from datetime import datetime
+import traceback
+from sqlalchemy import text
+from app import db  # Assuming `db` is SQLAlchemy() instance from app.py
+
+UPLOAD_FOLDER = './uploads'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+latest_uploaded_file = None
 
 datadive = Blueprint('datadive', __name__)
 
-# DB config
-db_config = {
-    'host': 'enqhzd10cxh7hv2e.cbetxkdyhwsb.us-east-1.rds.amazonaws.com',
-    'user': 'v4jbqslxdkfz0ox0',
-    'password': 'fxawiuzv6nu61c70',
-    'database': 'rnqxqwaljdwgx3un'
-}
-
-@datadive.route('/upload-dataset', methods=['POST'])
-def upload_dataset():
-    print("⚠️  Upload route hit")
+@datadive.route('/upload', methods=['POST'])
+@cross_origin()
+def upload_file():
+    global latest_uploaded_file
     try:
-        uploaded_file = request.files['file']
-        username = request.form.get('username')  # must be sent from frontend
-        if not uploaded_file or not username:
-            return jsonify({'error': 'Missing file or username'}), 400
+        print("⚠️ Upload route hit")
 
-        filename = uploaded_file.filename
-        ext = filename.split('.')[-1].lower()
+        username = request.form.get('username')
+        if not username:
+            print("❌ Username not provided")
+            return jsonify({"error": "username required"}), 400
 
-        if ext not in ['csv', 'xlsx']:
-            return jsonify({'error': 'Only CSV or XLSX files are supported'}), 400
+        file = request.files.get('file')
+        if not file:
+            print("❌ No file found in request")
+            return jsonify({"error": "No file uploaded"}), 400
 
-        # Read the file
-        if ext == 'csv':
-            df = pd.read_csv(uploaded_file)
-        else:
-            df = pd.read_excel(uploaded_file)
+        filename = secure_filename(file.filename)
+        filepath = os.path.join(UPLOAD_FOLDER, filename)
+        file.save(filepath)
+        latest_uploaded_file = filepath
 
-        row_count = df.shape[0]
-        col_count = df.shape[1]
-        column_headers = ', '.join(df.columns.tolist())
+        print(f"✅ File saved at: {filepath}")
 
-        # Column profiling
-        column_details = []
+        # Create per-user uploads table if not exists
+        uploads_tbl = f"{username}_uploads"
+        ddl = text(f"""
+            CREATE TABLE IF NOT EXISTS `{uploads_tbl}` (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                filename VARCHAR(255) NOT NULL,
+                upload_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                file_data LONGBLOB
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
+        db.session.execute(ddl)
+
+        with open(filepath, 'rb') as f:
+            blob = f.read()
+        insert = text(f"""
+            INSERT INTO `{uploads_tbl}` (filename, file_data)
+            VALUES (:fn, :blob)
+        """)
+        db.session.execute(insert, {'fn': filename, 'blob': blob})
+        db.session.commit()
+        print(f"✅ File inserted into table {uploads_tbl}")
+
+        # Read and profile dataset
+        try:
+            if filename.lower().endswith('.csv'):
+                df = pd.read_csv(filepath, nrows=5)
+                full_df = pd.read_csv(filepath)
+            elif filename.lower().endswith(('.xls', '.xlsx')):
+                df = pd.read_excel(filepath, nrows=5)
+                full_df = pd.read_excel(filepath)
+            else:
+                print("❌ Unsupported file type")
+                return jsonify({"error": "Unsupported file type"}), 400
+        except Exception as e:
+            traceback.print_exc()
+            return jsonify({"error": str(e)}), 500
+
+        metadata = []
+        groups_dict = {}
         for col in df.columns:
-            dtype = str(df[col].dtype)
+            series = df[col]
+            full_series = full_df[col]
+            if pd.api.types.is_datetime64_any_dtype(series):
+                col_type = "datetime"
+            elif pd.api.types.is_numeric_dtype(series):
+                col_type = "numeric"
+            elif series.nunique() / len(series) < 0.05:
+                col_type = "categorical"
+            else:
+                col_type = "text"
+
+            sem = None
+            name_lower = col.lower()
+            if "date" in name_lower or "time" in name_lower:
+                sem = "date"
+            elif "id" in name_lower:
+                sem = "identifier"
+
             entry = {
-                'column_name': col,
-                'data_type': dtype
+                "name": col,
+                "type": col_type,
+                "semantic": sem
             }
 
-            if dtype in ['object', 'category']:
-                unique_vals = df[col].dropna().unique().tolist()
-                entry['type'] = 'categorical'
-                entry['num_unique'] = len(unique_vals)
-                entry['unique_values'] = unique_vals
-            elif np.issubdtype(df[col].dtype, np.number):
-                series = df[col].dropna()
-                entry['type'] = 'numerical'
-                entry['count'] = int(series.count())
-                entry['mean'] = series.mean()
-                entry['median'] = series.median()
-                entry['mode'] = series.mode().tolist()
-                entry['min'] = series.min()
-                entry['max'] = series.max()
-                entry['std'] = series.std()
-                entry['sum'] = series.sum()
-            else:
-                entry['type'] = 'other'
+            if col_type in ("categorical", "text"):
+                unique_vals = full_series.dropna().astype(str).unique().tolist()
+                groups_dict[col] = unique_vals
 
-            column_details.append(entry)
+            metadata.append(entry)
 
-        # Save to DB as BLOB
-        uploaded_file.seek(0)
-        file_blob = uploaded_file.read()
-        table_name = f"{username}_uploads"
-
-        conn = mysql.connector.connect(**db_config)
-        cursor = conn.cursor()
-
-        cursor.execute(f"""
-            CREATE TABLE IF NOT EXISTS `{table_name}` (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                filename VARCHAR(255),
-                upload_time DATETIME,
-                row_count INT,
-                col_count INT,
-                column_headers TEXT,
-                dataset LONGBLOB
-            )
-        """)
-
-        cursor.execute(f"""
-            INSERT INTO `{table_name}` (filename, upload_time, row_count, col_count, column_headers, dataset)
-            VALUES (%s, %s, %s, %s, %s, %s)
-        """, (
-            filename,
-            datetime.now(),
-            row_count,
-            col_count,
-            column_headers,
-            file_blob
-        ))
-
-        conn.commit()
-        cursor.close()
-        conn.close()
-
+        print("✅ Metadata profiling complete")
         return jsonify({
-            'row_count': row_count,
-            'col_count': col_count,
-            'column_headers': df.columns.tolist(),
-            'columns': column_details
-        })
+            "columns": df.columns.tolist(),
+            "column_metadata": metadata,
+            "filename": filename,
+            "groups": groups_dict
+        }), 200
 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
