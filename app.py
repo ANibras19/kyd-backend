@@ -88,5 +88,28 @@ def login():
         print("Login error:", str(e))
         return jsonify({"error": str(e)}), 500
 
+@app.route('/update-plan', methods=['POST'])
+def update_plan():
+    data = request.get_json()
+    email = data.get('email')
+    plan = data.get('plan')
+
+    if not email or not plan:
+        return jsonify({"error": "Missing email or plan"}), 400
+
+    try:
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor()
+        query = "UPDATE users SET plan = %s WHERE email = %s"
+        cursor.execute(query, (plan, email))
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return jsonify({"message": f"Plan updated to {plan}"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == '__main__':
     app.run(debug=True)
