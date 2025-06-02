@@ -105,27 +105,38 @@ import pandas as pd
 import io
 
 @app.route('/upload', methods=['POST'])
-@cross_origin(origin="https://snazzy-kitten-19cb97.netlify.app")
+@cross_origin()
 def upload_file():
+    username = request.form.get('username')
+    if not username:
+        return jsonify({"error": "username required"}), 400
+
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part"}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+
     try:
-        # ─── Validate Input ────────────────────────────────────────────────
-        username = request.form.get('username')
-        if not username:
-            return jsonify({"error": "username required"}), 400
-
-        if 'file' not in request.files:
-            return jsonify({"error": "No file uploaded"}), 400
-
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({"error": "No selected file"}), 400
-
         filename = secure_filename(file.filename)
         file_stream = io.BytesIO(file.read())
-
-        # ─── Store File in DB ───────────────────────────────────────────────
         uploads_tbl = f"{username}_uploads"
 
+        # ─── Check user plan ──────────────────────
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT plan FROM users WHERE username = %s", (username,))
+        user = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+
+        plan = user['plan']
+
+        # ─── Create user upload table if not exists ─────────────
         db.session.execute(text(f"""
             CREATE TABLE IF NOT EXISTS `{uploads_tbl}` (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -134,16 +145,24 @@ def upload_file():
                 file_data LONGBLOB
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         """))
+        db.session.commit()
 
+        # ─── If Free plan, check for existing upload ────────────
+        if plan.lower() == "free":
+            existing = db.session.execute(
+                text(f"SELECT COUNT(*) AS count FROM `{uploads_tbl}`")
+            ).fetchone()
+            if existing['count'] > 0:
+                return jsonify({"error": "Free plan allows only one dataset upload"}), 403
+
+        # ─── Insert new file ─────────────────────────────────────
         db.session.execute(
-            text(f"""
-                INSERT INTO `{uploads_tbl}` (filename, file_data)
-                VALUES (:fn, :blob)
-            """), {'fn': filename, 'blob': file_stream.getvalue()}
+            text(f"INSERT INTO `{uploads_tbl}` (filename, file_data) VALUES (:fn, :blob)"),
+            {'fn': filename, 'blob': file_stream.getvalue()}
         )
         db.session.commit()
 
-        # ─── Read File to Extract Columns and Metadata ─────────────────────
+        # ─── Analyze file ────────────────────────────────────────
         file_stream.seek(0)
         sample_df = pd.read_csv(file_stream, nrows=5) if filename.lower().endswith('.csv') \
             else pd.read_excel(file_stream, nrows=5)
@@ -154,50 +173,34 @@ def upload_file():
 
         metadata = []
         groups_dict = {}
-
         for col in sample_df.columns:
-            series = sample_df[col]
-            full_series = full_df[col]
-
-            if pd.api.types.is_datetime64_any_dtype(series):
-                col_type = "datetime"
-            elif pd.api.types.is_numeric_dtype(series):
-                col_type = "numeric"
-            elif series.nunique() / len(series) < 0.05:
-                col_type = "categorical"
-            else:
-                col_type = "text"
-
-            semantic = None
-            name_lower = col.lower()
-            if "date" in name_lower or "time" in name_lower:
-                semantic = "date"
-            elif "id" in name_lower:
-                semantic = "identifier"
-
+            col_type = (
+                "datetime" if pd.api.types.is_datetime64_any_dtype(sample_df[col]) else
+                "numeric" if pd.api.types.is_numeric_dtype(sample_df[col]) else
+                "categorical" if sample_df[col].nunique() / len(sample_df[col]) < 0.05 else
+                "text"
+            )
             metadata.append({
                 "name": col,
                 "type": col_type,
-                "semantic": semantic
+                "semantic": (
+                    "date" if any(x in col.lower() for x in ["date", "time"]) else
+                    "identifier" if "id" in col.lower() else None
+                )
             })
-
             if col_type in ("categorical", "text"):
-                groups_dict[col] = full_series.dropna().astype(str).unique().tolist()
+                groups_dict[col] = full_df[col].dropna().astype(str).unique().tolist()
 
         return jsonify({
             "columns": sample_df.columns.tolist(),
             "column_metadata": metadata,
             "filename": filename,
             "groups": groups_dict
-        }), 200
+        })
 
-    except UnicodeDecodeError:
-        file_stream.seek(0)
-        df = pd.read_csv(file_stream, nrows=5, encoding='latin1')
-        return jsonify({"columns": df.columns.tolist(), "note": "Read using latin1 encoding"}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({"error": f"Processing failed: {str(e)}"}), 500
+        return jsonify({"error": f"Upload failed: {str(e)}"}), 500
 
 if __name__ == '__main__':
     from waitress import serve
