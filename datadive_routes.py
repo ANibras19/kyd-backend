@@ -16,6 +16,7 @@ db_config = {
 
 @datadive.route('/upload-dataset', methods=['POST'])
 def upload_dataset():
+    print("⚠️  Upload route hit")
     try:
         uploaded_file = request.files['file']
         username = request.form.get('username')  # must be sent from frontend
