@@ -123,70 +123,33 @@ def update_plan():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/upload', methods=['POST'])
+@cross_origin()  # Explicitly allow CORS on this route
 def upload_file():
-    print("Upload endpoint hit")
-    username = request.form.get('username')
-    if not username:
-        return jsonify({"error": "username required"}), 400
-
     file = request.files.get('file')
-    print("Uploaded file:", file)
     if not file:
         return jsonify({"error": "No file uploaded"}), 400
 
     filename = secure_filename(file.filename)
-    filepath = os.path.join("/tmp", filename)
+    filepath = os.path.join(UPLOAD_FOLDER, filename)
     file.save(filepath)
 
+    # Read and extract columns
     try:
         if filename.lower().endswith('.csv'):
-            try:
-                df = pd.read_csv(filepath)
-            except UnicodeDecodeError:
-                df = pd.read_csv(filepath, encoding='latin1')
+            df = pd.read_csv(filepath)
         elif filename.lower().endswith(('.xls', '.xlsx')):
             df = pd.read_excel(filepath)
         else:
-            return jsonify({"error": "Unsupported file type"}), 400
+            return jsonify({"error": "Unsupported file format"}), 400
     except Exception as e:
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
-
-    col_summary = []
-    for col in df.columns:
-        col_data = df[col].dropna()
-        data_type = str(col_data.dtype)
-        summary = {
-            "column_name": col,
-            "data_type": data_type,
-            "type": "numerical" if pd.api.types.is_numeric_dtype(col_data) else "categorical",
-        }
-        if pd.api.types.is_numeric_dtype(col_data):
-            summary.update({
-                "count": int(col_data.count()),
-                "mean": round(col_data.mean(), 2),
-                "median": round(col_data.median(), 2),
-                "mode": col_data.mode().tolist(),
-                "min": round(col_data.min(), 2),
-                "max": round(col_data.max(), 2),
-                "std": round(col_data.std(), 2),
-                "sum": round(col_data.sum(), 2),
-            })
-        else:
-            unique_vals = col_data.astype(str).unique().tolist()
-            summary.update({
-                "num_unique": len(unique_vals),
-                "unique_values": unique_vals[:10]
-            })
-
-        col_summary.append(summary)
+        return jsonify({"error": f"Failed to read file: {str(e)}"}), 500
 
     return jsonify({
+        "columns": df.columns.tolist(),
         "row_count": len(df),
-        "col_count": len(df.columns),
-        "columns": col_summary
-    })
+        "col_count": len(df.columns)
+    }), 200
 
 if __name__ == '__main__':
     from waitress import serve
-    serve(app, host="0.0.0.0", port=5000)
+    serve(app, host='0.0.0.0', port=5000)
