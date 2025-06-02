@@ -1,14 +1,18 @@
 from flask import Flask, request, jsonify
-from werkzeug.security import generate_password_hash
-from werkzeug.security import check_password_hash
 from flask_cors import CORS
+from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
+from sqlalchemy import create_engine, text
+import pandas as pd
 import mysql.connector
+import os
+import traceback
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-from datadive_routes import datadive
-app.register_blueprint(datadive, url_prefix="/datadive")
+UPLOAD_FOLDER = "uploads"
+latest_uploaded_file = None
 
 # MySQL connection details
 db_config = {
@@ -17,6 +21,9 @@ db_config = {
     'password': 'fxawiuzv6nu61c70',
     'database': 'rnqxqwaljdwgx3un'
 }
+
+db_url = f"mysql+mysqlconnector://{db_config['user']}:{db_config['password']}@{db_config['host']}/{db_config['database']}"
+db = create_engine(db_url)
 
 @app.route('/')
 def home():
@@ -31,7 +38,6 @@ def register():
     email = data.get('email')
     raw_password = data.get('password')
     password = generate_password_hash(raw_password)
-
 
     try:
         conn = mysql.connector.connect(**db_config)
@@ -49,7 +55,7 @@ def register():
         return jsonify({"error": "Username already exists"}), 409
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-    
+
 @app.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
@@ -114,6 +120,101 @@ def update_plan():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    global latest_uploaded_file
+
+    username = request.form.get('username')
+    if not username:
+        return jsonify({"error": "username required"}), 400
+
+    file = request.files.get('file')
+    if not file:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+    filename = secure_filename(file.filename)
+    filepath = os.path.join(UPLOAD_FOLDER, filename)
+    file.save(filepath)
+
+    latest_uploaded_file = filepath
+
+    uploads_tbl = f"{username}_uploads"
+    ddl = text(f"""
+        CREATE TABLE IF NOT EXISTS `{uploads_tbl}` (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            filename VARCHAR(255) NOT NULL,
+            upload_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            file_data LONGBLOB
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    """)
+    db.execute(ddl)
+
+    with open(filepath, 'rb') as f:
+        blob = f.read()
+    insert = text(f"""
+        INSERT INTO `{uploads_tbl}` (filename, file_data)
+        VALUES (:fn, :blob)
+    """)
+    db.execute(insert, {'fn': filename, 'blob': blob})
+
+    try:
+        if filename.lower().endswith('.csv'):
+            try:
+                df = pd.read_csv(filepath, nrows=5)
+                full_df = pd.read_csv(filepath)
+            except UnicodeDecodeError:
+                df = pd.read_csv(filepath, nrows=5, encoding='latin1')
+                full_df = pd.read_csv(filepath, encoding='latin1')
+        elif filename.lower().endswith(('.xls', '.xlsx')):
+            df = pd.read_excel(filepath, nrows=5)
+            full_df = pd.read_excel(filepath)
+        else:
+            return jsonify({"error": "Unsupported file type"}), 400
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+    metadata = []
+    groups_dict = {}
+    for col in df.columns:
+        series = df[col]
+        full_series = full_df[col]
+        if pd.api.types.is_datetime64_any_dtype(series):
+            col_type = "datetime"
+        elif pd.api.types.is_numeric_dtype(series):
+            col_type = "numeric"
+        elif series.nunique() / len(series) < 0.05:
+            col_type = "categorical"
+        else:
+            col_type = "text"
+
+        sem = None
+        name_lower = col.lower()
+        if "date" in name_lower or "time" in name_lower:
+            sem = "date"
+        elif "id" in name_lower:
+            sem = "identifier"
+
+        entry = {
+            "name": col,
+            "type": col_type,
+            "semantic": sem
+        }
+
+        if col_type in ("categorical", "text"):
+            unique_vals = full_series.dropna().astype(str).unique().tolist()
+            groups_dict[col] = unique_vals
+
+        metadata.append(entry)
+
+    return jsonify({
+        "columns": df.columns.tolist(),
+        "column_metadata": metadata,
+        "filename": filename,
+        "groups": groups_dict
+    }), 200
 
 if __name__ == '__main__':
     from waitress import serve
