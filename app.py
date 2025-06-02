@@ -20,6 +20,17 @@ db_config = {
     'database': 'rnqxqwaljdwgx3un'
 }
 
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import text
+
+# Add SQLAlchemy config (use same credentials)
+app.config['SQLALCHEMY_DATABASE_URI'] = (
+    'mysql+mysqlconnector://v4jbqslxdkfz0ox0:fxawiuzv6nu61c70@enqhzd10cxh7hv2e.cbetxkdyhwsb.us-east-1.rds.amazonaws.com/rnqxqwaljdwgx3un'
+)
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
+
+
 @app.route('/')
 def home():
     return "Backend is running."
