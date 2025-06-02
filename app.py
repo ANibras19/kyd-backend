@@ -8,7 +8,7 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 from datadive_routes import datadive
-app.register_blueprint(datadive)
+app.register_blueprint(datadive, url_prefix="/datadive")
 
 # MySQL connection details
 db_config = {
