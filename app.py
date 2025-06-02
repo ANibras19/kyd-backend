@@ -103,28 +103,95 @@ def login():
         print("Login error:", str(e))
         return jsonify({"error": str(e)}), 500
 
-@app.route('/update-plan', methods=['POST'])
-def update_plan():
-    data = request.get_json()
-    email = data.get('email')
-    plan = data.get('plan')
+@app.route('/upload', methods=['POST'])
+@cross_origin()
+def upload_file():
+    # ─── Validate Input ──────────────────────────────────────────────────
+    username = request.form.get('username')
+    if not username:
+        return jsonify({"error": "username required"}), 400
 
-    if not email or not plan:
-        return jsonify({"error": "Missing email or plan"}), 400
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part"}), 400
 
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+
+    # ─── In-Memory Processing (No Filesystem Dependency) ─────────────────
     try:
-        conn = mysql.connector.connect(**db_config)
-        cursor = conn.cursor()
-        query = "UPDATE users SET plan = %s WHERE email = %s"
-        cursor.execute(query, (plan, email))
-        conn.commit()
-        cursor.close()
-        conn.close()
+        # Process file directly from memory
+        filename = secure_filename(file.filename)
+        file_stream = io.BytesIO(file.read())  # Read into memory
 
-        return jsonify({"message": f"Plan updated to {plan}"}), 200
+        # ─── Database Storage ───────────────────────────────────────────
+        uploads_tbl = f"{username}_uploads"
+        
+        # Create table if not exists
+        db.session.execute(text(f"""
+            CREATE TABLE IF NOT EXISTS `{uploads_tbl}` (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                filename VARCHAR(255) NOT NULL,
+                upload_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                file_data LONGBLOB
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """))
+        
+        # Store file
+        db.session.execute(
+            text(f"INSERT INTO `{uploads_tbl}` (filename, file_data) VALUES (:fn, :blob)"),
+            {'fn': filename, 'blob': file_stream.getvalue()}
+        )
+        db.session.commit()
 
+        # ─── Data Analysis ──────────────────────────────────────────────
+        file_stream.seek(0)  # Rewind for reading
+        
+        # Sample first 5 rows
+        sample_df = pd.read_csv(file_stream, nrows=5) if filename.lower().endswith('.csv') \
+            else pd.read_excel(file_stream, nrows=5)
+        
+        # Full read for groups (new stream)
+        file_stream.seek(0)
+        full_df = pd.read_csv(file_stream) if filename.lower().endswith('.csv') \
+            else pd.read_excel(file_stream)
+
+        # ─── Generate Metadata ──────────────────────────────────────────
+        metadata = []
+        groups_dict = {}
+        
+        for col in sample_df.columns:
+            col_type = (
+                "datetime" if pd.api.types.is_datetime64_any_dtype(sample_df[col]) else
+                "numeric" if pd.api.types.is_numeric_dtype(sample_df[col]) else
+                "categorical" if sample_df[col].nunique() / len(sample_df[col]) < 0.05 else
+                "text"
+            )
+            
+            metadata.append({
+                "name": col,
+                "type": col_type,
+                "semantic": ("date" if any(x in col.lower() for x in ["date", "time"]) 
+                            or ("identifier" if "id" in col.lower() else None)
+            })
+            
+            if col_type in ("categorical", "text"):
+                groups_dict[col] = full_df[col].dropna().astype(str).unique().tolist()
+
+        return jsonify({
+            "columns": sample_df.columns.tolist(),
+            "column_metadata": metadata,
+            "filename": filename,
+            "groups": groups_dict
+        })
+
+    except UnicodeDecodeError:
+        file_stream.seek(0)
+        sample_df = pd.read_csv(file_stream, nrows=5, encoding='latin1')
+        # ... repeat processing with latin1 encoding
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        db.session.rollback()
+        return jsonify({"error": f"Processing failed: {str(e)}"}), 500
 
 @app.route('/upload', methods=['POST'])
 @cross_origin()  # Explicitly allow CORS on this route
