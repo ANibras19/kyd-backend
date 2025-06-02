@@ -4,9 +4,7 @@ from werkzeug.utils import secure_filename
 from flask_cors import CORS
 import mysql.connector
 import os
-import traceback
 import pandas as pd
-from datetime import datetime
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
@@ -21,7 +19,7 @@ def add_cors_headers(response):
     response.headers.add("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
     return response
 
-# MySQL connection details
+# MySQL config
 db_config = {
     'host': 'enqhzd10cxh7hv2e.cbetxkdyhwsb.us-east-1.rds.amazonaws.com',
     'user': 'v4jbqslxdkfz0ox0',
@@ -31,7 +29,7 @@ db_config = {
 
 @app.route('/')
 def home():
-    return "Backend is connected to JawsDB!"
+    return "Backend is running."
 
 @app.route('/register', methods=['POST'])
 def register():
@@ -46,11 +44,10 @@ def register():
     try:
         conn = mysql.connector.connect(**db_config)
         cursor = conn.cursor()
-        query = """
-            INSERT INTO users (username, first_name, last_name, email, password)
-            VALUES (%s, %s, %s, %s, %s)
-        """
-        cursor.execute(query, (username, first_name, last_name, email, password))
+        cursor.execute(
+            "INSERT INTO users (username, first_name, last_name, email, password) VALUES (%s, %s, %s, %s, %s)",
+            (username, first_name, last_name, email, password)
+        )
         conn.commit()
         cursor.close()
         conn.close()
@@ -66,40 +63,25 @@ def login():
     username_or_email = data.get('username')
     password = data.get('password')
 
-    print("Login attempt with:", username_or_email)
-
     try:
         conn = mysql.connector.connect(**db_config)
         cursor = conn.cursor(dictionary=True)
-        query = """
-            SELECT * FROM users
-            WHERE username = %s OR email = %s
-        """
-        cursor.execute(query, (username_or_email, username_or_email))
+        cursor.execute("SELECT * FROM users WHERE username = %s OR email = %s", (username_or_email, username_or_email))
         user = cursor.fetchone()
         cursor.close()
         conn.close()
 
-        print("User fetched from DB:", user)
-
-        if user:
-            print("Stored hash:", user['password'])
-            password_match = check_password_hash(user['password'], password)
-            print("Password match result:", password_match)
-
-            if password_match:
-                return jsonify({
-                    "message": "Login successful",
-                    "plan": user['plan'],
-                    "first_name": user["first_name"],
-                    "last_name": user["last_name"],
-                    "email": user["email"]
-                }), 200
+        if user and check_password_hash(user['password'], password):
+            return jsonify({
+                "message": "Login successful",
+                "plan": user['plan'],
+                "first_name": user["first_name"],
+                "last_name": user["last_name"],
+                "email": user["email"]
+            }), 200
 
         return jsonify({"error": "Invalid username/email or password"}), 401
-
     except Exception as e:
-        print("Login error:", str(e))
         return jsonify({"error": str(e)}), 500
 
 @app.route('/update-plan', methods=['POST'])
@@ -114,14 +96,11 @@ def update_plan():
     try:
         conn = mysql.connector.connect(**db_config)
         cursor = conn.cursor()
-        query = "UPDATE users SET plan = %s WHERE email = %s"
-        cursor.execute(query, (plan, email))
+        cursor.execute("UPDATE users SET plan = %s WHERE email = %s", (plan, email))
         conn.commit()
         cursor.close()
         conn.close()
-
         return jsonify({"message": f"Plan updated to {plan}"}), 200
-
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -135,7 +114,6 @@ def upload_file():
     filepath = os.path.join(UPLOAD_FOLDER, filename)
     file.save(filepath)
 
-    # Read and extract columns
     try:
         if filename.lower().endswith('.csv'):
             df = pd.read_csv(filepath)
