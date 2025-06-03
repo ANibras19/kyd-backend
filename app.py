@@ -7,6 +7,7 @@ import mysql.connector
 import os
 import pandas as pd
 import openai
+import json
 import os
 
 load_dotenv()  # Load from .env file
