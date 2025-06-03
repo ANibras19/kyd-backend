@@ -401,30 +401,14 @@ def suggest_tests():
         selected_groups = data['selected_groups']
         column_metadata = data['column_metadata']
         objective = data['objective']
+        preview_rows = data.get('previewRows', [])
 
-        table_name = f"{username}_uploads"
-        cursor = mysql.connection.cursor()
-        cursor.execute(f"SELECT file_data FROM {table_name} WHERE filename = %s", (filename,))
-        row = cursor.fetchone()
-        if not row:
-            return jsonify({'error': 'File not found'}), 404
+        if not preview_rows or len(preview_rows) < 1:
+            return jsonify({'error': 'No preview rows available to analyze. Please reload dataset.'}), 400
 
-        # Load file into DataFrame
-        file_bytes = row[0]
-        ext = filename.split('.')[-1].lower()
-        if ext == 'csv':
-            df = pd.read_csv(BytesIO(file_bytes))
-        else:
-            df = pd.read_excel(BytesIO(file_bytes))
+        # Convert preview rows to DataFrame for markdown preview
+        sample = pd.DataFrame(preview_rows)
 
-        # Sample rows
-        n_rows = len(df)
-        if n_rows < 50:
-            sample = df.head(3)
-        else:
-            sample = df.iloc[[0, 18, 56, 94] if n_rows >= 100 else [0, min(18, n_rows-1), min(56, n_rows-1), min(94, n_rows-1)]]
-
-        # Finalized test list organized by category
         test_categories = {
             "Mean/Median Comparison": [
                 "Independent t-test", "Paired t-test", "One-way ANOVA", "Welch’s ANOVA",
@@ -456,7 +440,6 @@ def suggest_tests():
             ]
         }
 
-        # Build OpenAI prompt
         prompt = f"""
 You are a data analysis assistant.
 
@@ -489,8 +472,11 @@ Do NOT invent new tests. Do NOT return explanations. ONLY return test names orga
         )
 
         reply = response['choices'][0]['message']['content']
-        test_map = json.loads(reply)  # reply should be a dict
-        return jsonify(test_map)
+        try:
+            test_map = json.loads(reply)
+            return jsonify(test_map)
+        except Exception as json_err:
+            return jsonify({'error': 'Failed to parse GPT response', 'raw': reply}), 500
 
     except Exception as e:
         print("Error in /suggest-tests:", str(e))
