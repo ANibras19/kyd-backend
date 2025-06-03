@@ -248,6 +248,79 @@ def list_uploads():
     except Exception as e:
         return jsonify({"error": f"Failed to list uploads: {str(e)}"}), 500
 
+@app.route('/load-upload', methods=['POST'])
+@cross_origin()
+def load_upload():
+    data = request.get_json()
+    username = data.get('username')
+    filename = data.get('filename')
+
+    if not username or not filename:
+        return jsonify({"error": "Username and filename required"}), 400
+
+    table = f"{username}_uploads"
+
+    try:
+        result = db.session.execute(
+            text(f"SELECT file_data FROM `{table}` WHERE filename = :filename ORDER BY upload_time DESC LIMIT 1"),
+            {"filename": filename}
+        ).fetchone()
+
+        if not result:
+            return jsonify({"error": "File not found"}), 404
+
+        file_stream = io.BytesIO(result[0])
+
+        sample_df = pd.read_csv(file_stream, nrows=5) if filename.lower().endswith('.csv') \
+            else pd.read_excel(file_stream, nrows=5)
+
+        file_stream.seek(0)
+        full_df = pd.read_csv(file_stream) if filename.lower().endswith('.csv') \
+            else pd.read_excel(file_stream)
+
+        metadata = []
+        groups_dict = {}
+        for col in sample_df.columns:
+            series_full = full_df[col].dropna()
+            dtype = str(full_df[col].dtype)
+            nunique = series_full.nunique()
+            avg_len = series_full.astype(str).map(len).mean() if dtype == 'object' else 0
+
+            if pd.api.types.is_datetime64_any_dtype(full_df[col]):
+                col_type = "datetime"
+            elif pd.api.types.is_numeric_dtype(full_df[col]):
+                col_type = "numeric"
+            elif dtype == 'object' or dtype == 'string':
+                if nunique < 50 and avg_len <= 20:
+                    col_type = "categorical"
+                else:
+                    col_type = "text"
+            else:
+                col_type = "text"
+
+            metadata.append({
+                "name": col,
+                "type": col_type,
+                "semantic": (
+                    "date" if any(x in col.lower() for x in ["date", "time"]) else
+                    "identifier" if "id" in col.lower() else None
+                )
+            })
+
+            if col_type in ("categorical", "text"):
+                groups_dict[col] = series_full.astype(str).unique().tolist()
+
+        return jsonify({
+            "columns": sample_df.columns.tolist(),
+            "column_metadata": metadata,
+            "filename": filename,
+            "groups": groups_dict
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Load failed: {str(e)}"}), 500
+
 if __name__ == '__main__':
     from waitress import serve
     serve(app, host='0.0.0.0', port=5000)
