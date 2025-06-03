@@ -225,6 +225,29 @@ def upload_file():
         db.session.rollback()
         return jsonify({"error": f"Upload failed: {str(e)}"}), 500
 
+@app.route('/list-uploads', methods=['GET'])
+@cross_origin()
+def list_uploads():
+    username = request.args.get('username')
+    if not username:
+        return jsonify({"error": "username required"}), 400
+
+    table_name = f"{username}_uploads"
+    try:
+        results = db.session.execute(
+            text(f"SELECT filename, upload_time FROM `{table_name}` ORDER BY upload_time DESC")
+        ).fetchall()
+
+        uploads = [
+            {"filename": row['filename'], "upload_time": row['upload_time'].strftime('%Y-%m-%d %H:%M')}
+            for row in results
+        ]
+
+        return jsonify(uploads), 200
+
+    except Exception as e:
+        return jsonify({"error": f"Failed to list uploads: {str(e)}"}), 500
+
 if __name__ == '__main__':
     from waitress import serve
     serve(app, host='0.0.0.0', port=5000)
