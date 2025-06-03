@@ -185,12 +185,23 @@ def upload_file():
         metadata = []
         groups_dict = {}
         for col in sample_df.columns:
-            col_type = (
-                "datetime" if pd.api.types.is_datetime64_any_dtype(sample_df[col]) else
-                "numeric" if pd.api.types.is_numeric_dtype(sample_df[col]) else
-                "categorical" if sample_df[col].nunique() / len(sample_df[col]) < 0.05 else
-                "text"
-            )
+            series_full = full_df[col].dropna()
+            dtype = str(full_df[col].dtype)
+            nunique = series_full.nunique()
+            avg_len = series_full.astype(str).map(len).mean() if dtype == 'object' else 0
+
+            if pd.api.types.is_datetime64_any_dtype(full_df[col]):
+                col_type = "datetime"
+            elif pd.api.types.is_numeric_dtype(full_df[col]):
+                col_type = "numeric"
+            elif dtype == 'object' or dtype == 'string':
+                if nunique < 50 and avg_len <= 20:
+                    col_type = "categorical"
+                else:
+                    col_type = "text"
+            else:
+                col_type = "text"
+
             metadata.append({
                 "name": col,
                 "type": col_type,
@@ -199,8 +210,9 @@ def upload_file():
                     "identifier" if "id" in col.lower() else None
                 )
             })
+
             if col_type in ("categorical", "text"):
-                groups_dict[col] = full_df[col].dropna().astype(str).unique().tolist()
+                groups_dict[col] = series_full.astype(str).unique().tolist()
 
         return jsonify({
             "columns": sample_df.columns.tolist(),
