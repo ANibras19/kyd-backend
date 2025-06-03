@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from flask_cors import CORS
@@ -8,6 +9,7 @@ import pandas as pd
 import openai
 import os
 
+load_dotenv()  # Load from .env file
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 app = Flask(__name__)
@@ -185,6 +187,7 @@ def upload_file():
         file_stream.seek(0)
         full_df = pd.read_csv(file_stream) if filename.lower().endswith('.csv') \
             else pd.read_excel(file_stream)
+        parsed_data = full_df.head(100).to_dict(orient='records')  # limit to avoid overload
 
         metadata = []
         groups_dict = {}
@@ -281,6 +284,7 @@ def load_upload():
         file_stream.seek(0)
         full_df = pd.read_csv(file_stream) if filename.lower().endswith('.csv') \
             else pd.read_excel(file_stream)
+        parsed_data = full_df.head(100).to_dict(orient='records')  # limit to avoid overload
 
         metadata = []
         groups_dict = {}
@@ -318,7 +322,8 @@ def load_upload():
             "columns": sample_df.columns.tolist(),
             "column_metadata": metadata,
             "filename": filename,
-            "groups": groups_dict
+            "groups": groups_dict,
+            "parsed_data": parsed_data
         })
 
     except Exception as e:
