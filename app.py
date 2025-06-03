@@ -394,6 +394,8 @@ Based on this, explain what would happen if the user runs the test '{test_name}'
     
 @app.route('/suggest-tests', methods=['POST'])
 def suggest_tests():
+    import ast  # used for safe fallback parsing
+
     try:
         data = request.get_json()
         username = data.get('username') or 'unknown'
@@ -403,12 +405,13 @@ def suggest_tests():
         objective = data['objective']
         preview_rows = data.get('previewRows', [])
 
-        if not preview_rows or len(preview_rows) < 1:
-            return jsonify({'error': 'No preview rows available to analyze. Please reload dataset.'}), 400
+        if not preview_rows or len(preview_rows) == 0:
+            return jsonify({'error': 'No preview rows found. Please reload dataset and try again.'}), 400
 
-        # Convert preview rows to DataFrame for markdown preview
+        # Convert preview rows to DataFrame
         sample = pd.DataFrame(preview_rows)
 
+        # Approved test categories list
         test_categories = {
             "Mean/Median Comparison": [
                 "Independent t-test", "Paired t-test", "One-way ANOVA", "Welch’s ANOVA",
@@ -440,6 +443,7 @@ def suggest_tests():
             ]
         }
 
+        # Compose GPT prompt
         prompt = f"""
 You are a data analysis assistant.
 
@@ -462,24 +466,32 @@ Here are sample rows from the dataset:
 Do NOT invent new tests. Do NOT return explanations. ONLY return test names organized by category as a dictionary.
 """
 
+        # Send prompt to GPT
         response = openai.ChatCompletion.create(
             model='gpt-4o',
             messages=[
                 {"role": "system", "content": "You are a statistical assistant that strictly returns allowed tests."},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=600
+            max_tokens=700
         )
 
-        reply = response['choices'][0]['message']['content']
+        reply = response['choices'][0]['message']['content'].strip()
+        print("🔍 GPT reply:\n", reply)
+
         try:
             test_map = json.loads(reply)
-            return jsonify(test_map)
-        except Exception as json_err:
-            return jsonify({'error': 'Failed to parse GPT response', 'raw': reply}), 500
+        except Exception:
+            try:
+                test_map = ast.literal_eval(reply)
+            except Exception as parse_error:
+                print("❌ Failed to parse GPT response:\n", reply)
+                return jsonify({'error': 'Invalid GPT response format', 'raw': reply}), 500
+
+        return jsonify(test_map)
 
     except Exception as e:
-        print("Error in /suggest-tests:", str(e))
+        print("🔥 Exception in /suggest-tests:", str(e))
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
