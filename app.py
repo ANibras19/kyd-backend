@@ -5,6 +5,10 @@ from flask_cors import CORS
 import mysql.connector
 import os
 import pandas as pd
+import openai
+import os
+
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
@@ -320,6 +324,172 @@ def load_upload():
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": f"Load failed: {str(e)}"}), 500
+
+@app.route('/explain-test', methods=['POST'])
+def explain_test():
+    try:
+        data = request.get_json()
+        username = data.get('username') or 'unknown'
+        filename = data['filename']
+        selected_groups = data['selected_groups']
+        column_metadata = data['column_metadata']
+        test_name = data['test_name']
+
+        table_name = f"{username}_uploads"
+        cursor = mysql.connection.cursor()
+        cursor.execute(f"SELECT file_data FROM {table_name} WHERE filename = %s", (filename,))
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({'error': 'File not found'}), 404
+
+        # Load file into DataFrame
+        file_bytes = row[0]
+        ext = filename.split('.')[-1].lower()
+        if ext == 'csv':
+            df = pd.read_csv(BytesIO(file_bytes))
+        else:
+            df = pd.read_excel(BytesIO(file_bytes))
+
+        # Extract sample rows
+        n_rows = len(df)
+        if n_rows < 50:
+            sample = df.head(3)
+        else:
+            sample = df.iloc[[0, 18, 56, 94] if n_rows >= 100 else [0, min(18, n_rows-1), min(56, n_rows-1), min(94, n_rows-1)]]
+
+        # Build prompt for GPT
+        prompt = f"""
+You are a statistical assistant. A user has uploaded a dataset and selected the following:
+
+Test requested: {test_name}
+Selected groups: {json.dumps(selected_groups, indent=2)}
+Column metadata: {json.dumps(column_metadata, indent=2)}
+Sample data:
+{sample.to_markdown(index=False)}
+
+Based on this, explain what would happen if the user runs the test '{test_name}' on this dataset.
+"""
+
+        # Call OpenAI
+        response = openai.ChatCompletion.create(
+            model='gpt-4o',
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant for data analysis."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=500
+        )
+
+        explanation = response['choices'][0]['message']['content']
+        return jsonify({'explanation': explanation})
+
+    except Exception as e:
+        print("Error in /explain-test:", str(e))
+        return jsonify({'error': str(e)}), 500
+    
+@app.route('/suggest-tests', methods=['POST'])
+def suggest_tests():
+    try:
+        data = request.get_json()
+        username = data.get('username') or 'unknown'
+        filename = data['filename']
+        selected_groups = data['selected_groups']
+        column_metadata = data['column_metadata']
+        objective = data['objective']
+
+        table_name = f"{username}_uploads"
+        cursor = mysql.connection.cursor()
+        cursor.execute(f"SELECT file_data FROM {table_name} WHERE filename = %s", (filename,))
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({'error': 'File not found'}), 404
+
+        # Load file into DataFrame
+        file_bytes = row[0]
+        ext = filename.split('.')[-1].lower()
+        if ext == 'csv':
+            df = pd.read_csv(BytesIO(file_bytes))
+        else:
+            df = pd.read_excel(BytesIO(file_bytes))
+
+        # Sample rows
+        n_rows = len(df)
+        if n_rows < 50:
+            sample = df.head(3)
+        else:
+            sample = df.iloc[[0, 18, 56, 94] if n_rows >= 100 else [0, min(18, n_rows-1), min(56, n_rows-1), min(94, n_rows-1)]]
+
+        # Finalized test list organized by category
+        test_categories = {
+            "Mean/Median Comparison": [
+                "Independent t-test", "Paired t-test", "One-way ANOVA", "Welch’s ANOVA",
+                "Mann-Whitney U test", "Wilcoxon signed-rank test", "Kruskal-Wallis H test", "Friedman test"
+            ],
+            "Correlation and Association": [
+                "Pearson correlation", "Spearman rank correlation", "Kendall’s tau",
+                "Chi-square test of independence", "Fisher’s Exact Test", "Cramér’s V", "Point-Biserial correlation"
+            ],
+            "Normality and Distribution": [
+                "Shapiro-Wilk test", "Kolmogorov–Smirnov test", "Anderson-Darling test",
+                "Lilliefors test", "Jarque-Bera test"
+            ],
+            "Homogeneity of Variance": [
+                "Levene’s test", "Bartlett’s test"
+            ],
+            "Proportions and Rates": [
+                "Z-test for proportions", "Chi-square goodness-of-fit test", "McNemar’s test"
+            ],
+            "Regression and Model Fit": [
+                "Simple Linear Regression", "Multiple Linear Regression", "Logistic Regression",
+                "Hosmer-Lemeshow test", "ANOVA for Regression"
+            ],
+            "Reliability / Agreement": [
+                "Cohen’s Kappa", "Intraclass Correlation Coefficient (ICC)"
+            ],
+            "Outlier and Sensitivity": [
+                "Grubbs’ Test"
+            ]
+        }
+
+        # Build OpenAI prompt
+        prompt = f"""
+You are a data analysis assistant.
+
+Only choose from the following list of statistical tests:
+{json.dumps(test_categories, indent=2)}
+
+User objective: {objective}
+
+User selected these groups and columns:
+{json.dumps(selected_groups, indent=2)}
+
+Column metadata:
+{json.dumps(column_metadata, indent=2)}
+
+Here are sample rows from the dataset:
+{sample.to_markdown(index=False)}
+
+👉 Based on all of this, return a dictionary where each category maps to 0 or more suitable test names from the above list.
+
+Do NOT invent new tests. Do NOT return explanations. ONLY return test names organized by category as a dictionary.
+"""
+
+        response = openai.ChatCompletion.create(
+            model='gpt-4o',
+            messages=[
+                {"role": "system", "content": "You are a statistical assistant that strictly returns allowed tests."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=600
+        )
+
+        reply = response['choices'][0]['message']['content']
+        test_map = json.loads(reply)  # reply should be a dict
+        return jsonify(test_map)
+
+    except Exception as e:
+        print("Error in /suggest-tests:", str(e))
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     from waitress import serve
