@@ -236,7 +236,7 @@ def list_uploads():
     try:
         results = db.session.execute(
             text(f"SELECT filename, upload_time FROM `{table_name}` ORDER BY upload_time DESC")
-        ).fetchall()
+        ).mappings().all()
 
         uploads = [
             {"filename": row['filename'], "upload_time": row['upload_time'].strftime('%Y-%m-%d %H:%M')}
