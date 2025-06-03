@@ -10,6 +10,7 @@ openpyxl==3.1.2
 waitress==2.1.2
 openai==1.82.0
 python-dotenv
+tabulate
 
 
 
