@@ -334,61 +334,76 @@ client = OpenAI()
 
 @app.route('/explain-test', methods=['POST'])
 def explain_test():
+    import io
     try:
         data = request.get_json()
-        username = data.get('username') or 'unknown'
-        filename = data['filename']
-        selected_groups = data['selected_groups']
-        column_metadata = data['column_metadata']
-        test_name = data['test_name']
+        username = data.get('username')
+        filename = data.get('filename')
+        selected_groups = data.get('selected_groups')
+        column_metadata = data.get('column_metadata')
+        test_name = data.get('test_name')
 
+        # ─── Load dataset from DB ────────────────────────
         table_name = f"{username}_uploads"
-        cursor = mysql.connection.cursor()
-        cursor.execute(f"SELECT file_data FROM {table_name} WHERE filename = %s", (filename,))
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor()
+        cursor.execute(f"SELECT file_data FROM `{table_name}` WHERE filename = %s", (filename,))
         row = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
         if not row:
             return jsonify({'error': 'File not found'}), 404
 
         file_bytes = row[0]
         ext = filename.split('.')[-1].lower()
-        if ext == 'csv':
-            df = pd.read_csv(BytesIO(file_bytes))
-        else:
-            df = pd.read_excel(BytesIO(file_bytes))
+        file_stream = io.BytesIO(file_bytes)
 
+        if ext == 'csv':
+            df = pd.read_csv(file_stream)
+        else:
+            df = pd.read_excel(file_stream)
+
+        # ─── Extract sample rows ──────────────────────────
         n_rows = len(df)
         if n_rows < 50:
             sample = df.head(3)
         else:
             sample = df.iloc[[0, 18, 56, 94] if n_rows >= 100 else [0, min(18, n_rows-1), min(56, n_rows-1), min(94, n_rows-1)]]
 
+        # ─── Construct Prompt ─────────────────────────────
         prompt = f"""
-You are a statistical assistant. A user has uploaded a dataset and selected the following:
+You are a data assistant helping a non-technical user analyze their dataset.
 
 Test requested: {test_name}
+
 Selected groups: {json.dumps(selected_groups, indent=2)}
+
 Column metadata: {json.dumps(column_metadata, indent=2)}
-Sample data:
+
+Sample data (only for understanding, do not analyze it directly):
 {sample.to_markdown(index=False)}
 
-Based on this, explain what would happen if the user runs the test '{test_name}' on this dataset.
+Please explain clearly:
+1. What does this test do?
+2. Why is it useful?
+3. What kind of result will it return? 
+
+These must be answered by taking all the inputs you received as context. Avoid technical jargon. Explain like you're helping a beginner.
 """
 
-        response = client.chat.completions.create(
-            model='gpt-4o',
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant for data analysis."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=500
+        response = openai.ChatCompletion.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.5
         )
 
-        explanation = response.choices[0].message.content
-        return jsonify({'explanation': explanation})
+        explanation = response['choices'][0]['message']['content']
+        return jsonify({"explanation": explanation})
 
     except Exception as e:
         print("Error in /explain-test:", str(e))
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/suggest-tests', methods=['POST'])
 def suggest_tests():
