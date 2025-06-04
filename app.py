@@ -4,14 +4,12 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from flask_cors import CORS
 import mysql.connector
-import os
 import pandas as pd
 import json
 import os
-
+from openai import OpenAI
 load_dotenv()  # Load from .env file
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
