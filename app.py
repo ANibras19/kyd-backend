@@ -38,7 +38,7 @@ db = SQLAlchemy(app)
 
 @app.route('/')
 def home():
-    return "Backend is running."
+    return "Backend is running and connected to database."
 
 @app.route('/register', methods=['POST'])
 def register():
@@ -476,15 +476,16 @@ Do NOT invent new tests. Do NOT return explanations. ONLY return test names orga
         # Clean fancy/smart quotes before parsing
         cleaned_reply = reply.replace("“", '"').replace("”", '"').replace("’", "'")
         try:
-            test_map = json.loads(reply)
+            test_map = json.loads(cleaned_reply)
         except Exception:
             try:
-                test_map = ast.literal_eval(reply)
+                test_map = ast.literal_eval(cleaned_reply)
             except Exception as parse_error:
-                print("❌ Failed to parse GPT response:\n", reply)
-                return jsonify({'error': 'Invalid GPT response format', 'raw': reply}), 500
+                print("❌ Failed to parse GPT response:\n", cleaned_reply)
+                return jsonify({'error': 'Invalid GPT response format', 'raw': cleaned_reply}), 500
+            
+            return jsonify(test_map)
 
-        return jsonify(test_map)
 
     except Exception as e:
         print("🔥 Exception in /suggest-tests:", str(e))
