@@ -341,21 +341,25 @@ def explain_test():
         selected_groups = data.get('selected_groups')
         column_metadata = data.get('column_metadata')
         test_name = data.get('test_name')
-        preview_rows = data.get('previewRows')
+        preview_rows = data.get('previewRows', [])
 
         prompt = f"""
-You are a data assistant helping a non-technical user analyze data in a file named '{filename}'.
-They have selected column groups: {selected_groups}
-They have metadata about columns: {column_metadata}
-They are viewing a few rows of data: {preview_rows}
-They want to run this test: '{test_name}'.
+You are a data assistant helping a non-technical user analyze data from a file called '{filename}'.
 
-Please answer simply:
+They have selected these groups:\n{selected_groups}
+
+This is the metadata for each column:\n{column_metadata}
+
+Here are a few sample rows from the dataset:\n{preview_rows}
+
+The user wants to run the '{test_name}'.
+
+Please explain in beginner-friendly language:
 1. What does this test do?
 2. Why is it useful?
-3. What kind of result will it return?
+3. What kind of result will it give?
 
-Avoid technical jargon. Explain like you're helping a beginner.
+Avoid jargon. Keep it short and clear in simple language. Your response will be based on the inputs which your received being taken as the context.
 """
 
         response = openai.ChatCompletion.create(
@@ -368,6 +372,7 @@ Avoid technical jargon. Explain like you're helping a beginner.
         return jsonify({"explanation": explanation})
 
     except Exception as e:
+        print("🔴 /explain-test ERROR:", str(e))  # Also log to Heroku
         return jsonify({"error": str(e)}), 500
 
 @app.route('/suggest-tests', methods=['POST'])
