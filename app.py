@@ -353,7 +353,7 @@ They want to run this test: '{test_name}'.
 Please answer simply:
 1. What does this test do?
 2. Why is it useful?
-3. What kind of result will it return?
+3. What will the result tell you?
 
 Avoid technical jargon. Explain like you're helping a beginner. The language must be simple and clear. Your explanation will be based on the inputs you received being taken as contxt, or in other words, you will give accurate and relatable response based on the inputs. 
 """
