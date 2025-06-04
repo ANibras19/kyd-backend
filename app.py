@@ -473,8 +473,19 @@ Do NOT invent new tests. Do NOT return explanations. ONLY return test names orga
         reply = response.choices[0].message.content.strip()
         print("🔍 GPT reply:\n", reply)
 
-        # Clean fancy/smart quotes before parsing
-        cleaned_reply = reply.replace("“", '"').replace("”", '"').replace("’", "'")
+        # Clean fancy/smart quotes and strip code block if present
+        cleaned_reply = (
+            reply.replace("“", '"')
+                 .replace("”", '"')
+                 .replace("’", "'")
+                 .strip()
+        )
+
+        if cleaned_reply.startswith("```") and cleaned_reply.endswith("```"):
+            lines = cleaned_reply.splitlines()
+            if len(lines) >= 3:
+                cleaned_reply = "\n".join(lines[1:-1])  # Remove first and last lines
+
         try:
             test_map = json.loads(cleaned_reply)
         except Exception:
@@ -483,9 +494,8 @@ Do NOT invent new tests. Do NOT return explanations. ONLY return test names orga
             except Exception as parse_error:
                 print("❌ Failed to parse GPT response:\n", cleaned_reply)
                 return jsonify({'error': 'Invalid GPT response format', 'raw': cleaned_reply}), 500
-            
-            return jsonify(test_map)
 
+        return jsonify(test_map)
 
     except Exception as e:
         print("🔥 Exception in /suggest-tests:", str(e))
