@@ -334,7 +334,6 @@ client = OpenAI()
 
 @app.route('/explain-test', methods=['POST'])
 def explain_test():
-    import io
     try:
         data = request.get_json()
         username = data.get('username')
@@ -342,54 +341,21 @@ def explain_test():
         selected_groups = data.get('selected_groups')
         column_metadata = data.get('column_metadata')
         test_name = data.get('test_name')
+        preview_rows = data.get('previewRows')
 
-        # ─── Load dataset from DB ────────────────────────
-        table_name = f"{username}_uploads"
-        conn = mysql.connector.connect(**db_config)
-        cursor = conn.cursor()
-        cursor.execute(f"SELECT file_data FROM `{table_name}` WHERE filename = %s", (filename,))
-        row = cursor.fetchone()
-        cursor.close()
-        conn.close()
-
-        if not row:
-            return jsonify({'error': 'File not found'}), 404
-
-        file_bytes = row[0]
-        ext = filename.split('.')[-1].lower()
-        file_stream = io.BytesIO(file_bytes)
-
-        if ext == 'csv':
-            df = pd.read_csv(file_stream)
-        else:
-            df = pd.read_excel(file_stream)
-
-        # ─── Extract sample rows ──────────────────────────
-        n_rows = len(df)
-        if n_rows < 50:
-            sample = df.head(3)
-        else:
-            sample = df.iloc[[0, 18, 56, 94] if n_rows >= 100 else [0, min(18, n_rows-1), min(56, n_rows-1), min(94, n_rows-1)]]
-
-        # ─── Construct Prompt ─────────────────────────────
         prompt = f"""
-You are a data assistant helping a non-technical user analyze their dataset.
+You are a data assistant helping a non-technical user analyze data in a file named '{filename}'.
+They have selected column groups: {selected_groups}
+They have metadata about columns: {column_metadata}
+They are viewing a few rows of data: {preview_rows}
+They want to run this test: '{test_name}'.
 
-Test requested: {test_name}
-
-Selected groups: {json.dumps(selected_groups, indent=2)}
-
-Column metadata: {json.dumps(column_metadata, indent=2)}
-
-Sample data (only for understanding, do not analyze it directly):
-{sample.to_markdown(index=False)}
-
-Please explain clearly:
+Please answer simply:
 1. What does this test do?
 2. Why is it useful?
-3. What kind of result will it return? 
+3. What kind of result will it return?
 
-These must be answered by taking all the inputs you received as context. Avoid technical jargon. Explain like you're helping a beginner.
+Avoid technical jargon. Explain like you're helping a beginner.
 """
 
         response = openai.ChatCompletion.create(
@@ -402,7 +368,6 @@ These must be answered by taking all the inputs you received as context. Avoid t
         return jsonify({"explanation": explanation})
 
     except Exception as e:
-        print("Error in /explain-test:", str(e))
         return jsonify({"error": str(e)}), 500
 
 @app.route('/suggest-tests', methods=['POST'])
