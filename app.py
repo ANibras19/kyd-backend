@@ -341,38 +341,34 @@ def explain_test():
         selected_groups = data.get('selected_groups')
         column_metadata = data.get('column_metadata')
         test_name = data.get('test_name')
-        preview_rows = data.get('previewRows', [])
+        preview_rows = data.get('previewRows')
 
         prompt = f"""
-You are a data assistant helping a non-technical user analyze data from a file called '{filename}'.
+You are a data assistant helping a non-technical user analyze data in a file named '{filename}'.
+They have selected column groups: {selected_groups}
+They have metadata about columns: {column_metadata}
+They have preview rows: {preview_rows}
+They want to run this test: '{test_name}'.
 
-They have selected these groups:\n{selected_groups}
-
-This is the metadata for each column:\n{column_metadata}
-
-Here are a few sample rows from the dataset:\n{preview_rows}
-
-The user wants to run the '{test_name}'.
-
-Please explain in beginner-friendly language:
+Please answer simply:
 1. What does this test do?
 2. Why is it useful?
-3. What kind of result will it give?
+3. What kind of result will it return?
 
-Avoid jargon. Keep it short and clear in simple language. Your response will be based on the inputs which your received being taken as the context.
+Avoid technical jargon. Explain like you're helping a beginner. The language must be simple and clear. Your explanation will be based on the inputs you received being taken as contxt, or in other words, you will give accurate and relatable response based on the inputs. 
 """
 
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.5
         )
 
-        explanation = response['choices'][0]['message']['content']
+        explanation = response.choices[0].message.content
         return jsonify({"explanation": explanation})
 
     except Exception as e:
-        print("🔴 /explain-test ERROR:", str(e))  # Also log to Heroku
+        print("🔴 /explain-test ERROR:", e)
         return jsonify({"error": str(e)}), 500
 
 @app.route('/suggest-tests', methods=['POST'])
