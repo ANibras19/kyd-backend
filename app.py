@@ -458,7 +458,7 @@ Here are sample rows from the dataset:
 
 👉 Based on all of this, return a dictionary where each category maps to 0 or more suitable test names from the above list.
 
-Do NOT invent new tests. Do NOT return explanations. ONLY return test names organized by category as a dictionary.
+Do NOT invent new tests. Do NOT return explanations. ONLY return test names organized by category as a Python dictionary with standard straight quotes.
 """
 
         response = client.chat.completions.create(
@@ -473,6 +473,8 @@ Do NOT invent new tests. Do NOT return explanations. ONLY return test names orga
         reply = response.choices[0].message.content.strip()
         print("🔍 GPT reply:\n", reply)
 
+        # Clean fancy/smart quotes before parsing
+        cleaned_reply = reply.replace("“", '"').replace("”", '"').replace("’", "'")
         try:
             test_map = json.loads(reply)
         except Exception:
