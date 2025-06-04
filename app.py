@@ -135,15 +135,15 @@ def upload_file():
         return jsonify({"error": "No selected file"}), 400
 
     try:
-        filename = secure_filename(file.filename)
-        file_stream = io.BytesIO(file.read())
-        uploads_tbl = f"{username}_uploads"
+        filename     = secure_filename(file.filename)
+        file_stream  = io.BytesIO(file.read())
+        uploads_tbl  = f"{username}_uploads"
 
-        # ─── Check user plan ──────────────────────
-        conn = mysql.connector.connect(**db_config)
+        # ─── Check user plan ───────────────────────────────
+        conn   = mysql.connector.connect(**db_config)
         cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT plan FROM users WHERE username = %s", (username,))
-        user = cursor.fetchone()
+        user   = cursor.fetchone()
         cursor.close()
         conn.close()
 
@@ -152,18 +152,18 @@ def upload_file():
 
         plan = user['plan']
 
-        # ─── Create user upload table if not exists ─────────────
+        # ─── Create user upload table if not exists ───────
         db.session.execute(text(f"""
             CREATE TABLE IF NOT EXISTS `{uploads_tbl}` (
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                filename VARCHAR(255) NOT NULL,
-                upload_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                file_data LONGBLOB
+                filename      VARCHAR(255) NOT NULL,
+                upload_time   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                file_data     LONGBLOB
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         """))
         db.session.commit()
 
-        # ─── If Free plan, check for existing upload ────────────
+        # ─── Free-plan limit check ────────────────────────
         if plan.lower() == "free":
             existing = db.session.execute(
                 text(f"SELECT COUNT(*) AS count FROM `{uploads_tbl}`")
@@ -171,66 +171,69 @@ def upload_file():
             if existing['count'] > 0:
                 return jsonify({"error": "Free plan allows only one dataset upload"}), 403
 
-        # ─── Insert new file ─────────────────────────────────────
+        # ─── Insert the new file into MySQL ───────────────
         db.session.execute(
             text(f"INSERT INTO `{uploads_tbl}` (filename, file_data) VALUES (:fn, :blob)"),
             {'fn': filename, 'blob': file_stream.getvalue()}
         )
         db.session.commit()
 
-        # ─── Analyze file ────────────────────────────────────────
+        # ─── Analyse the file ─────────────────────────────
         file_stream.seek(0)
-        sample_df = pd.read_csv(file_stream, nrows=5) if filename.lower().endswith('.csv') \
+        sample_df = (
+            pd.read_csv(file_stream, nrows=5)
+            if filename.lower().endswith('.csv')
             else pd.read_excel(file_stream, nrows=5)
+        )
 
         file_stream.seek(0)
-        full_df = pd.read_csv(file_stream) if filename.lower().endswith('.csv') \
+        full_df = (
+            pd.read_csv(file_stream)
+            if filename.lower().endswith('.csv')
             else pd.read_excel(file_stream)
-        parsed_data = full_df.head(100).to_dict(orient='records')  # limit to avoid overload
+        )
 
-        metadata = []
+        # NEW ➜ shape info + preview
+        row_count, col_count = map(int, full_df.shape)
+        parsed_data          = full_df.head(100).to_dict(orient='records')  # limit to 100 rows
+
+        metadata    = []
         groups_dict = {}
         for col in sample_df.columns:
             series_full = full_df[col].dropna()
-            dtype = str(full_df[col].dtype)
-            nunique = series_full.nunique()
-            avg_len = series_full.astype(str).map(len).mean() if dtype == 'object' else 0
+            dtype       = str(full_df[col].dtype)
+            nunique     = series_full.nunique()
+            avg_len     = series_full.astype(str).map(len).mean() if dtype == 'object' else 0
 
             if pd.api.types.is_datetime64_any_dtype(full_df[col]):
                 col_type = "datetime"
             elif pd.api.types.is_numeric_dtype(full_df[col]):
                 col_type = "numeric"
-            elif dtype == 'object' or dtype == 'string':
-                if nunique < 50 and avg_len <= 20:
-                    col_type = "categorical"
-                else:
-                    col_type = "text"
+            elif dtype in ('object', 'string'):
+                col_type = "categorical" if (nunique < 50 and avg_len <= 20) else "text"
             else:
                 col_type = "text"
 
             metadata.append({
-                "name": col,
-                "type": col_type,
+                "name"    : col,
+                "type"    : col_type,
                 "semantic": (
-                    "date" if any(x in col.lower() for x in ["date", "time"]) else
-                    "identifier" if "id" in col.lower() else None
+                    "date"        if any(x in col.lower() for x in ["date", "time"]) else
+                    "identifier"  if "id" in col.lower() else None
                 )
             })
 
             if col_type in ("categorical", "text"):
                 groups_dict[col] = series_full.astype(str).unique().tolist()
-        
-        row_count  = int(df.shape[0])      # number of rows
-        col_count  = int(df.shape[1])      # number of columns
 
         return jsonify({
-            "columns": sample_df.columns.tolist(),
-            "column_metadata": metadata,
-            "filename": filename,
-            "groups": groups_dict,
-            "row_count": row_count,
-            "col_count": col_count
-
+            "columns"         : sample_df.columns.tolist(),
+            "column_metadata" : metadata,
+            "filename"        : filename,
+            "groups"          : groups_dict,
+            "parsed_data"     : parsed_data,   # ← NEW
+            "row_count"       : row_count,     # ← NEW
+            "col_count"       : col_count      # ← NEW
         })
 
     except Exception as e:
@@ -283,12 +286,22 @@ def load_upload():
 
         file_stream = io.BytesIO(result[0])
 
-        sample_df = pd.read_csv(file_stream, nrows=5) if filename.lower().endswith('.csv') \
+        sample_df = (
+            pd.read_csv(file_stream, nrows=5)
+            if filename.lower().endswith('.csv')
             else pd.read_excel(file_stream, nrows=5)
+        )
 
         file_stream.seek(0)
-        full_df = pd.read_csv(file_stream) if filename.lower().endswith('.csv') \
+        full_df = (
+            pd.read_csv(file_stream)
+            if filename.lower().endswith('.csv')
             else pd.read_excel(file_stream)
+        )
+
+        # NEW — shape information
+        row_count, col_count = map(int, full_df.shape)
+
         parsed_data = full_df.head(100).to_dict(orient='records')  # limit to avoid overload
 
         metadata = []
@@ -303,7 +316,7 @@ def load_upload():
                 col_type = "datetime"
             elif pd.api.types.is_numeric_dtype(full_df[col]):
                 col_type = "numeric"
-            elif dtype == 'object' or dtype == 'string':
+            elif dtype in ('object', 'string'):
                 if nunique < 50 and avg_len <= 20:
                     col_type = "categorical"
                 else:
@@ -322,9 +335,6 @@ def load_upload():
 
             if col_type in ("categorical", "text"):
                 groups_dict[col] = series_full.astype(str).unique().tolist()
-        
-        row_count = int(df.shape[0])
-        col_count = int(df.shape[1])
 
         return jsonify({
             "columns": sample_df.columns.tolist(),
@@ -332,16 +342,13 @@ def load_upload():
             "filename": filename,
             "groups": groups_dict,
             "parsed_data": parsed_data,
-            "row_count": row_count,
-            "col_count": col_count
+            "row_count": row_count,    # ← NEW
+            "col_count": col_count     # ← NEW
         })
 
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": f"Load failed: {str(e)}"}), 500
-
-from openai import OpenAI
-client = OpenAI()
 
 @app.route('/explain-test', methods=['POST'])
 def explain_test():
