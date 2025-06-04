@@ -396,6 +396,7 @@ def suggest_tests():
 
     try:
         data = request.get_json()
+        print("📥 Incoming payload to /suggest-tests:\n", json.dumps(data, indent=2))
         username = data.get('username') or 'unknown'
         filename = data['filename']
         selected_groups = data['selected_groups']
