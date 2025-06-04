@@ -219,12 +219,18 @@ def upload_file():
 
             if col_type in ("categorical", "text"):
                 groups_dict[col] = series_full.astype(str).unique().tolist()
+        
+        row_count  = int(df.shape[0])      # number of rows
+        col_count  = int(df.shape[1])      # number of columns
 
         return jsonify({
             "columns": sample_df.columns.tolist(),
             "column_metadata": metadata,
             "filename": filename,
-            "groups": groups_dict
+            "groups": groups_dict,
+            "row_count": row_count,
+            "col_count": col_count
+
         })
 
     except Exception as e:
@@ -316,13 +322,18 @@ def load_upload():
 
             if col_type in ("categorical", "text"):
                 groups_dict[col] = series_full.astype(str).unique().tolist()
+        
+        row_count = int(df.shape[0])
+        col_count = int(df.shape[1])
 
         return jsonify({
             "columns": sample_df.columns.tolist(),
             "column_metadata": metadata,
             "filename": filename,
             "groups": groups_dict,
-            "parsed_data": parsed_data
+            "parsed_data": parsed_data,
+            "row_count": row_count,
+            "col_count": col_count
         })
 
     except Exception as e:
