@@ -6,7 +6,6 @@ from flask_cors import CORS
 import mysql.connector
 import os
 import pandas as pd
-import openai
 import json
 import os
 
@@ -331,6 +330,9 @@ def load_upload():
         db.session.rollback()
         return jsonify({"error": f"Load failed: {str(e)}"}), 500
 
+from openai import OpenAI
+client = OpenAI()
+
 @app.route('/explain-test', methods=['POST'])
 def explain_test():
     try:
@@ -348,7 +350,6 @@ def explain_test():
         if not row:
             return jsonify({'error': 'File not found'}), 404
 
-        # Load file into DataFrame
         file_bytes = row[0]
         ext = filename.split('.')[-1].lower()
         if ext == 'csv':
@@ -356,14 +357,12 @@ def explain_test():
         else:
             df = pd.read_excel(BytesIO(file_bytes))
 
-        # Extract sample rows
         n_rows = len(df)
         if n_rows < 50:
             sample = df.head(3)
         else:
             sample = df.iloc[[0, 18, 56, 94] if n_rows >= 100 else [0, min(18, n_rows-1), min(56, n_rows-1), min(94, n_rows-1)]]
 
-        # Build prompt for GPT
         prompt = f"""
 You are a statistical assistant. A user has uploaded a dataset and selected the following:
 
@@ -376,8 +375,7 @@ Sample data:
 Based on this, explain what would happen if the user runs the test '{test_name}' on this dataset.
 """
 
-        # Call OpenAI
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model='gpt-4o',
             messages=[
                 {"role": "system", "content": "You are a helpful assistant for data analysis."},
@@ -386,16 +384,16 @@ Based on this, explain what would happen if the user runs the test '{test_name}'
             max_tokens=500
         )
 
-        explanation = response['choices'][0]['message']['content']
+        explanation = response.choices[0].message.content
         return jsonify({'explanation': explanation})
 
     except Exception as e:
         print("Error in /explain-test:", str(e))
         return jsonify({'error': str(e)}), 500
-    
+
 @app.route('/suggest-tests', methods=['POST'])
 def suggest_tests():
-    import ast  # used for safe fallback parsing
+    import ast
 
     try:
         data = request.get_json()
@@ -409,10 +407,8 @@ def suggest_tests():
         if not preview_rows or len(preview_rows) == 0:
             return jsonify({'error': 'No preview rows found. Please reload dataset and try again.'}), 400
 
-        # Convert preview rows to DataFrame
         sample = pd.DataFrame(preview_rows)
 
-        # Approved test categories list
         test_categories = {
             "Mean/Median Comparison": [
                 "Independent t-test", "Paired t-test", "One-way ANOVA", "Welch’s ANOVA",
@@ -444,7 +440,6 @@ def suggest_tests():
             ]
         }
 
-        # Compose GPT prompt
         prompt = f"""
 You are a data analysis assistant.
 
@@ -467,8 +462,7 @@ Here are sample rows from the dataset:
 Do NOT invent new tests. Do NOT return explanations. ONLY return test names organized by category as a dictionary.
 """
 
-        # Send prompt to GPT
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model='gpt-4o',
             messages=[
                 {"role": "system", "content": "You are a statistical assistant that strictly returns allowed tests."},
@@ -477,7 +471,7 @@ Do NOT invent new tests. Do NOT return explanations. ONLY return test names orga
             max_tokens=700
         )
 
-        reply = response['choices'][0]['message']['content'].strip()
+        reply = response.choices[0].message.content.strip()
         print("🔍 GPT reply:\n", reply)
 
         try:
