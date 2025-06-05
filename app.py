@@ -120,7 +120,7 @@ from sqlalchemy import text
 import pandas as pd
 import io
 
-@app.route('/upload', methods=['POST'])
+@@app.route('/upload', methods=['POST'])
 @cross_origin()
 def upload_file():
     username = request.form.get('username')
@@ -140,46 +140,7 @@ def upload_file():
         file_stream = io.BytesIO(file_bytes)
         uploads_tbl = f"{username}_uploads"
 
-        # ─── Check user plan ───────────────────────────────
-        conn = mysql.connector.connect(**db_config)
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT plan FROM users WHERE username = %s", (username,))
-        user = cursor.fetchone()
-        cursor.close()
-        conn.close()
-
-        if not user:
-            return jsonify({"error": "User not found"}), 404
-
-        plan = user['plan']
-
-        # ─── Create user upload table if not exists ───────
-        db.session.execute(text(f"""
-            CREATE TABLE IF NOT EXISTS `{uploads_tbl}` (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                filename      VARCHAR(255) NOT NULL,
-                upload_time   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                file_data     LONGBLOB
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        """))
-        db.session.commit()
-
-        # ─── Free-plan limit check ────────────────────────
-        if plan.lower() == "free":
-            existing = db.session.execute(
-                text(f"SELECT COUNT(*) AS count FROM `{uploads_tbl}`")
-            ).fetchone()
-            if existing['count'] > 0:
-                return jsonify({"error": "Free plan allows only one dataset upload"}), 403
-
-        # ─── Insert into MySQL first (after full read) ────
-        db.session.execute(
-            text(f"INSERT INTO `{uploads_tbl}` (filename, file_data) VALUES (:fn, :blob)"),
-            {'fn': filename, 'blob': file_bytes}
-        )
-        db.session.commit()
-
-        # ─── Analyse the file with fallback ───────────────
+        # ─── Analyse the file first ───────────────────────────────
         file_stream.seek(0)
         try:
             sample_df = pd.read_csv(file_stream, nrows=5)
@@ -211,6 +172,43 @@ def upload_file():
                 "filename": filename,
                 "format": file_format
             })
+
+        # ─── Proceed with DB insert only if user accepted fills ──────
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT plan FROM users WHERE username = %s", (username,))
+        user = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+
+        plan = user['plan']
+
+        db.session.execute(text(f"""
+            CREATE TABLE IF NOT EXISTS `{uploads_tbl}` (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                filename      VARCHAR(255) NOT NULL,
+                upload_time   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                file_data     LONGBLOB
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """))
+        db.session.commit()
+
+        if plan.lower() == "free":
+            existing = db.session.execute(
+                text(f"SELECT COUNT(*) AS count FROM `{uploads_tbl}`")
+            ).fetchone()
+            if existing['count'] > 0:
+                return jsonify({"error": "Free plan allows only one dataset upload"}), 403
+
+        # Insert after clean
+        db.session.execute(
+            text(f"INSERT INTO `{uploads_tbl}` (filename, file_data) VALUES (:fn, :blob)"),
+            {'fn': filename, 'blob': file_bytes}
+        )
+        db.session.commit()
 
         # ─── Metadata generation ────────────────────────────
         row_count, col_count = map(int, full_df.shape)
