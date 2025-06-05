@@ -196,6 +196,23 @@ def upload_file():
         if sample_df.empty or len(sample_df.columns) == 0:
             return jsonify({"error": "File appears empty or unstructured"}), 400
 
+        # ─── Check for missing values and return fill suggestion ──────
+        proposed_fills = {}
+        for col in full_df.columns:
+            if full_df[col].isnull().any():
+                if pd.api.types.is_numeric_dtype(full_df[col]):
+                    proposed_fills[col] = 0
+                else:
+                    proposed_fills[col] = "none"
+        if proposed_fills:
+            return jsonify({
+                "action_required": True,
+                "proposed_fills": proposed_fills,
+                "filename": filename,
+                "format": file_format
+            })
+
+        # ─── Metadata generation ────────────────────────────
         row_count, col_count = map(int, full_df.shape)
         parsed_data = full_df.head(100).to_dict(orient='records')
 
@@ -239,7 +256,7 @@ def upload_file():
             "parsed_data": parsed_data,
             "row_count": row_count,
             "col_count": col_count,
-            "format": file_format  # ← kept properly
+            "format": file_format
         })
 
     except Exception as e:
