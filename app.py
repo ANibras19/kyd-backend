@@ -234,7 +234,7 @@ def upload_file():
             "groups": groups_dict,
             "parsed_data": parsed_data,
             "row_count": row_count,
-            "col_count": col_count
+            "col_count": col_count,
             "format": file_format  # ✅ Add here
         })
 
@@ -345,8 +345,8 @@ def load_upload():
             "groups": groups_dict,
             "parsed_data": parsed_data,
             "row_count": row_count,
-            "col_count": col_count
-            "format": file_format  # ✅ Add here
+            "col_count": col_count,
+            "format": file_format  
         })
 
     except Exception as e:
