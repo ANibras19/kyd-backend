@@ -120,7 +120,7 @@ from sqlalchemy import text
 import pandas as pd
 import io
 
-@@app.route('/upload', methods=['POST'])
+@app.route('/upload', methods=['POST'])
 @cross_origin()
 def upload_file():
     username = request.form.get('username')
