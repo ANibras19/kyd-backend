@@ -293,7 +293,6 @@ def load_upload():
         file_bytes = result[0]
         file_stream = io.BytesIO(file_bytes)
 
-        # Try CSV first, fallback to Excel
         try:
             sample_df = pd.read_csv(file_stream, nrows=5)
             file_format = 'csv'
@@ -302,7 +301,6 @@ def load_upload():
             sample_df = pd.read_excel(file_stream, nrows=5)
             file_format = 'excel'
 
-        # Basic structure check
         if sample_df.empty or len(sample_df.columns) == 0:
             return jsonify({"error": "File appears empty or unstructured"}), 400
 
@@ -316,18 +314,18 @@ def load_upload():
         groups_dict = {}
 
         for col in sample_df.columns:
-            col_series = full_df[col]
-            series_no_na = col_series.dropna()
-            dtype = str(col_series.dtype)
-            nunique = series_no_na.nunique()
+            series_full = full_df[col].dropna()
+            dtype = str(full_df[col].dtype)
+            nunique = series_full.nunique()
+            avg_len = series_full.astype(str).map(len).mean() if not series_full.empty and dtype == 'object' else 0
 
-            if pd.api.types.is_datetime64_any_dtype(col_series):
+            if series_full.empty:
+                col_type = "empty"
+            elif pd.api.types.is_datetime64_any_dtype(full_df[col]):
                 col_type = "datetime"
-            elif pd.api.types.is_numeric_dtype(col_series):
+            elif pd.api.types.is_numeric_dtype(full_df[col]):
                 col_type = "numeric"
             elif dtype in ('object', 'string'):
-                str_vals = series_no_na.astype(str)
-                avg_len = str_vals.map(len).mean() if not str_vals.empty else 0
                 col_type = "categorical" if (nunique < 50 and avg_len <= 20) else "text"
             else:
                 col_type = "text"
@@ -342,7 +340,7 @@ def load_upload():
             })
 
             if col_type in ("categorical", "text"):
-                groups_dict[col] = str_vals.unique().tolist() if not str_vals.empty else []
+                groups_dict[col] = series_full.astype(str).unique().tolist()
 
         return jsonify({
             "columns": sample_df.columns.tolist(),
@@ -352,7 +350,7 @@ def load_upload():
             "parsed_data": parsed_data,
             "row_count": row_count,
             "col_count": col_count,
-            "format": file_format  # ✅ correct inline comment syntax
+            "format": file_format
         })
 
     except Exception as e:
