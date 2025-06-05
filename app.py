@@ -183,11 +183,13 @@ def upload_file():
         file_stream.seek(0)
         try:
             sample_df = pd.read_csv(file_stream, nrows=5)
+            file_format = 'csv'
             file_stream.seek(0)
             full_df = pd.read_csv(file_stream)
         except Exception:
             file_stream.seek(0)
             sample_df = pd.read_excel(file_stream, nrows=5)
+            file_format = 'excel'
             file_stream.seek(0)
             full_df = pd.read_excel(file_stream)
 
@@ -235,7 +237,7 @@ def upload_file():
             "parsed_data": parsed_data,
             "row_count": row_count,
             "col_count": col_count,
-            "format": file_format  # ✅ Add here
+            "format": file_format  # ✅ now properly included
         })
 
     except Exception as e:
@@ -346,7 +348,7 @@ def load_upload():
             "parsed_data": parsed_data,
             "row_count": row_count,
             "col_count": col_count,
-            "format": file_format  
+            "format": file_format  # ✅ correct inline comment syntax
         })
 
     except Exception as e:
