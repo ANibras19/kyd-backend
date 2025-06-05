@@ -203,16 +203,18 @@ def upload_file():
         metadata = []
         groups_dict = {}
         for col in sample_df.columns:
-            series_full = full_df[col].dropna()
-            dtype = str(full_df[col].dtype)
-            nunique = series_full.nunique()
-            avg_len = series_full.astype(str).map(len).mean() if dtype == 'object' else 0
+            col_series = full_df[col]
+            series_no_na = col_series.dropna()
+            dtype = str(col_series.dtype)
+            nunique = series_no_na.nunique()
 
-            if pd.api.types.is_datetime64_any_dtype(full_df[col]):
+            if pd.api.types.is_datetime64_any_dtype(col_series):
                 col_type = "datetime"
-            elif pd.api.types.is_numeric_dtype(full_df[col]):
+            elif pd.api.types.is_numeric_dtype(col_series):
                 col_type = "numeric"
             elif dtype in ('object', 'string'):
+                str_vals = series_no_na.astype(str)
+                avg_len = str_vals.map(len).mean() if not str_vals.empty else 0
                 col_type = "categorical" if (nunique < 50 and avg_len <= 20) else "text"
             else:
                 col_type = "text"
@@ -227,7 +229,7 @@ def upload_file():
             })
 
             if col_type in ("categorical", "text"):
-                groups_dict[col] = series_full.astype(str).unique().tolist()
+                groups_dict[col] = str_vals.unique().tolist() if not str_vals.empty else []
 
         return jsonify({
             "columns": sample_df.columns.tolist(),
@@ -237,7 +239,7 @@ def upload_file():
             "parsed_data": parsed_data,
             "row_count": row_count,
             "col_count": col_count,
-            "format": file_format  # ✅ now properly included
+            "format": file_format
         })
 
     except Exception as e:
@@ -314,16 +316,18 @@ def load_upload():
         groups_dict = {}
 
         for col in sample_df.columns:
-            series_full = full_df[col].dropna()
-            dtype = str(full_df[col].dtype)
-            nunique = series_full.nunique()
-            avg_len = series_full.astype(str).map(len).mean() if dtype == 'object' else 0
+            col_series = full_df[col]
+            series_no_na = col_series.dropna()
+            dtype = str(col_series.dtype)
+            nunique = series_no_na.nunique()
 
-            if pd.api.types.is_datetime64_any_dtype(full_df[col]):
+            if pd.api.types.is_datetime64_any_dtype(col_series):
                 col_type = "datetime"
-            elif pd.api.types.is_numeric_dtype(full_df[col]):
+            elif pd.api.types.is_numeric_dtype(col_series):
                 col_type = "numeric"
             elif dtype in ('object', 'string'):
+                str_vals = series_no_na.astype(str)
+                avg_len = str_vals.map(len).mean() if not str_vals.empty else 0
                 col_type = "categorical" if (nunique < 50 and avg_len <= 20) else "text"
             else:
                 col_type = "text"
@@ -338,7 +342,7 @@ def load_upload():
             })
 
             if col_type in ("categorical", "text"):
-                groups_dict[col] = series_full.astype(str).unique().tolist()
+                groups_dict[col] = str_vals.unique().tolist() if not str_vals.empty else []
 
         return jsonify({
             "columns": sample_df.columns.tolist(),
@@ -354,7 +358,7 @@ def load_upload():
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": f"Load failed: {str(e)}"}), 500
-
+    
 @app.route('/explain-test', methods=['POST'])
 def explain_test():
     try:
