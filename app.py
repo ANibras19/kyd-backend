@@ -157,21 +157,13 @@ def upload_file():
         if sample_df.empty or len(sample_df.columns) == 0:
             return jsonify({"error": "File appears empty or unstructured"}), 400
 
-        # ─── Check for missing values and return fill suggestion ──────
-        proposed_fills = {}
-        for col in full_df.columns:
-            if full_df[col].isnull().any():
-                if pd.api.types.is_numeric_dtype(full_df[col]):
-                    proposed_fills[col] = 0
-                else:
-                    proposed_fills[col] = "none"
-        if proposed_fills:
+        missing_columns = [col for col in full_df.columns if full_df[col].isnull().any()]
+        if missing_columns:
             return jsonify({
-                "action_required": True,
-                "proposed_fills": proposed_fills,
+                "missing_columns": missing_columns,
                 "filename": filename,
                 "format": file_format
-            })
+            }), 200
 
         # ─── Proceed with DB insert only if user accepted fills ──────
         conn = mysql.connector.connect(**db_config)
