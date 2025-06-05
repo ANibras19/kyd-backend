@@ -135,15 +135,16 @@ def upload_file():
         return jsonify({"error": "No selected file"}), 400
 
     try:
-        filename     = secure_filename(file.filename)
-        file_stream  = io.BytesIO(file.read())
-        uploads_tbl  = f"{username}_uploads"
+        filename = secure_filename(file.filename)
+        file_bytes = file.read()
+        file_stream = io.BytesIO(file_bytes)
+        uploads_tbl = f"{username}_uploads"
 
         # ─── Check user plan ───────────────────────────────
-        conn   = mysql.connector.connect(**db_config)
+        conn = mysql.connector.connect(**db_config)
         cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT plan FROM users WHERE username = %s", (username,))
-        user   = cursor.fetchone()
+        user = cursor.fetchone()
         cursor.close()
         conn.close()
 
@@ -171,39 +172,39 @@ def upload_file():
             if existing['count'] > 0:
                 return jsonify({"error": "Free plan allows only one dataset upload"}), 403
 
-        # ─── Insert the new file into MySQL ───────────────
+        # ─── Insert into MySQL first (after full read) ────
         db.session.execute(
             text(f"INSERT INTO `{uploads_tbl}` (filename, file_data) VALUES (:fn, :blob)"),
-            {'fn': filename, 'blob': file_stream.getvalue()}
+            {'fn': filename, 'blob': file_bytes}
         )
         db.session.commit()
 
-        # ─── Analyse the file ─────────────────────────────
+        # ─── Analyse the file with fallback ───────────────
         file_stream.seek(0)
-        sample_df = (
-            pd.read_csv(file_stream, nrows=5)
-            if filename.lower().endswith('.csv')
-            else pd.read_excel(file_stream, nrows=5)
-        )
+        try:
+            sample_df = pd.read_csv(file_stream, nrows=5)
+            file_stream.seek(0)
+            full_df = pd.read_csv(file_stream)
+        except Exception:
+            file_stream.seek(0)
+            sample_df = pd.read_excel(file_stream, nrows=5)
+            file_stream.seek(0)
+            full_df = pd.read_excel(file_stream)
 
-        file_stream.seek(0)
-        full_df = (
-            pd.read_csv(file_stream)
-            if filename.lower().endswith('.csv')
-            else pd.read_excel(file_stream)
-        )
+        # Check for valid structure
+        if sample_df.empty or len(sample_df.columns) == 0:
+            return jsonify({"error": "File appears empty or unstructured"}), 400
 
-        # NEW ➜ shape info + preview
         row_count, col_count = map(int, full_df.shape)
-        parsed_data          = full_df.head(100).to_dict(orient='records')  # limit to 100 rows
+        parsed_data = full_df.head(100).to_dict(orient='records')
 
-        metadata    = []
+        metadata = []
         groups_dict = {}
         for col in sample_df.columns:
             series_full = full_df[col].dropna()
-            dtype       = str(full_df[col].dtype)
-            nunique     = series_full.nunique()
-            avg_len     = series_full.astype(str).map(len).mean() if dtype == 'object' else 0
+            dtype = str(full_df[col].dtype)
+            nunique = series_full.nunique()
+            avg_len = series_full.astype(str).map(len).mean() if dtype == 'object' else 0
 
             if pd.api.types.is_datetime64_any_dtype(full_df[col]):
                 col_type = "datetime"
@@ -215,11 +216,11 @@ def upload_file():
                 col_type = "text"
 
             metadata.append({
-                "name"    : col,
-                "type"    : col_type,
+                "name": col,
+                "type": col_type,
                 "semantic": (
-                    "date"        if any(x in col.lower() for x in ["date", "time"]) else
-                    "identifier"  if "id" in col.lower() else None
+                    "date" if any(x in col.lower() for x in ["date", "time"]) else
+                    "identifier" if "id" in col.lower() else None
                 )
             })
 
@@ -227,13 +228,14 @@ def upload_file():
                 groups_dict[col] = series_full.astype(str).unique().tolist()
 
         return jsonify({
-            "columns"         : sample_df.columns.tolist(),
-            "column_metadata" : metadata,
-            "filename"        : filename,
-            "groups"          : groups_dict,
-            "parsed_data"     : parsed_data,   # ← NEW
-            "row_count"       : row_count,     # ← NEW
-            "col_count"       : col_count      # ← NEW
+            "columns": sample_df.columns.tolist(),
+            "column_metadata": metadata,
+            "filename": filename,
+            "groups": groups_dict,
+            "parsed_data": parsed_data,
+            "row_count": row_count,
+            "col_count": col_count
+            "format": file_format  # ✅ Add here
         })
 
     except Exception as e:
@@ -284,28 +286,31 @@ def load_upload():
         if not result:
             return jsonify({"error": "File not found"}), 404
 
-        file_stream = io.BytesIO(result[0])
+        file_bytes = result[0]
+        file_stream = io.BytesIO(file_bytes)
 
-        sample_df = (
-            pd.read_csv(file_stream, nrows=5)
-            if filename.lower().endswith('.csv')
-            else pd.read_excel(file_stream, nrows=5)
-        )
+        # Try CSV first, fallback to Excel
+        try:
+            sample_df = pd.read_csv(file_stream, nrows=5)
+            file_format = 'csv'
+        except Exception:
+            file_stream.seek(0)
+            sample_df = pd.read_excel(file_stream, nrows=5)
+            file_format = 'excel'
+
+        # Basic structure check
+        if sample_df.empty or len(sample_df.columns) == 0:
+            return jsonify({"error": "File appears empty or unstructured"}), 400
 
         file_stream.seek(0)
-        full_df = (
-            pd.read_csv(file_stream)
-            if filename.lower().endswith('.csv')
-            else pd.read_excel(file_stream)
-        )
+        full_df = pd.read_csv(file_stream) if file_format == 'csv' else pd.read_excel(file_stream)
 
-        # NEW — shape information
         row_count, col_count = map(int, full_df.shape)
-
-        parsed_data = full_df.head(100).to_dict(orient='records')  # limit to avoid overload
+        parsed_data = full_df.head(100).to_dict(orient='records')
 
         metadata = []
         groups_dict = {}
+
         for col in sample_df.columns:
             series_full = full_df[col].dropna()
             dtype = str(full_df[col].dtype)
@@ -317,10 +322,7 @@ def load_upload():
             elif pd.api.types.is_numeric_dtype(full_df[col]):
                 col_type = "numeric"
             elif dtype in ('object', 'string'):
-                if nunique < 50 and avg_len <= 20:
-                    col_type = "categorical"
-                else:
-                    col_type = "text"
+                col_type = "categorical" if (nunique < 50 and avg_len <= 20) else "text"
             else:
                 col_type = "text"
 
@@ -342,8 +344,9 @@ def load_upload():
             "filename": filename,
             "groups": groups_dict,
             "parsed_data": parsed_data,
-            "row_count": row_count,    # ← NEW
-            "col_count": col_count     # ← NEW
+            "row_count": row_count,
+            "col_count": col_count
+            "format": file_format  # ✅ Add here
         })
 
     except Exception as e:
