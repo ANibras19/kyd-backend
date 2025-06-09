@@ -380,14 +380,13 @@ def explain_test():
         preview_info = json.dumps(preview_rows, indent=2)
         selected_info = json.dumps(selected_groups, indent=2)
 
-        # Determine selected types for logic
         selected_types = []
         for col in selected_columns:
             for meta in column_metadata:
                 if meta['name'] == col:
                     selected_types.append(meta['type'])
 
-        # === GPT Prompt ===
+        # Prompting logic
         if not selected_columns:
             prompt = f"""
 You are a statistical assistant helping a beginner understand a test called '{test_name}' for their dataset '{filename}'.
@@ -400,23 +399,20 @@ Here is the column metadata:
 Here are a few sample rows:
 {preview_info}
 
-Please explain in simple terms:
+Explain clearly:
 1. What does this test do?
 2. Why is it useful?
-3. What kind of column types or groupings are required to run this test?
-   → Mention number and type (e.g., 1 numeric, 2 categorical).
-   → Suggest 2–3 column names from the metadata as examples.
-4. What kind of chart or visualization is possible after this test?
-   → Include chart types and what they visualize.
+3. What column types and combinations are needed to run this test?
+   → Mention types needed (e.g., 1 numeric, 2 categorical) and suggest valid combinations like [A, B], [C, D].
+4. What chart or visualization can be shown after this test and why?
 
-Do NOT include greetings like "Certainly" or markdown formatting like **bold**.
-Keep your response focused and friendly.
+No greetings or markdown formatting. Use simple, clean language.
 """
         else:
             prompt = f"""
 You are a statistical assistant helping a beginner explore a dataset '{filename}' using the test: '{test_name}'.
 
-The user has selected these column groups:
+The user selected these columns:
 {selected_info}
 
 Here is the metadata for all columns:
@@ -425,55 +421,57 @@ Here is the metadata for all columns:
 Here are some preview rows:
 {preview_info}
 
-Please explain:
+Explain:
 1. What does this test do?
 2. Why is it useful?
-3. What will the test reveal using the selected columns?
-4. What kind of chart or visualization can be shown after the test?
-5. Based on their selection and metadata, is this selection valid?
-   → If valid, say "This selection is valid to run the test."
-   → If invalid, say what to add/remove.
+3. What will the test reveal based on selected data?
+4. What chart/visualization will help and why?
+5. Is this selection valid?
+   → If valid, say: "This selection is valid to run the test."
+   → If invalid, explain what to change.
 
 Also include:
-- What kind of column types are required (e.g., 2 categorical)
-- Suggest 2–3 matching columns from metadata as examples
+- Column types required (e.g., 2 categorical or 1 numeric)
+- Suggested valid combinations using column names (e.g., [sales_channel, trip_type])
 
-Avoid greetings or markdown. Plain beginner-friendly language only.
+Avoid greetings and markdown. Plain, beginner-friendly language only.
 """
 
+        # GPT call
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.5
         )
 
-        full_text = response.choices[0].message.content
+        full_text = response.choices[0].message.content.strip()
 
-        # === Clean Response ===
-        lines = full_text.strip().split('\n')
+        # Clean up
+        lines = full_text.split('\n')
         while lines and ("certainly" in lines[0].lower() or lines[0].strip() == ""):
             lines.pop(0)
         clean_text = "\n".join(lines).replace("**", "").strip()
 
-        # === Extract validity ===
+        # Determine proceed permission
         can_proceed = any("selection is valid" in line.lower() for line in lines)
 
-        # === Extract 2–3 recommended column names ===
-        possible_cols = []
-        for meta in column_metadata:
-            for line in lines:
-                if meta['name'] in line and meta['name'] not in possible_cols:
-                    possible_cols.append(meta['name'])
-        required_examples = possible_cols[:3]
+        # Extract recommended combinations (e.g., [A, B])
+        combinations = []
+        for line in lines:
+            if '[' in line and ']' in line and ',' in line:
+                inner = line[line.find('[')+1 : line.find(']')]
+                cols = [x.strip().strip('"') for x in inner.split(',') if x.strip()]
+                if len(cols) > 1:
+                    combinations.append(cols)
 
         return jsonify({
             "explanation": clean_text,
-            "required_columns": required_examples,
+            "required_columns": combinations,
             "can_proceed": can_proceed
         })
 
     except Exception as e:
-        print("🔴 /explain-test ERROR:", e)
+        print("\ud83d\udd34 /explain-test ERROR:", e)
         return jsonify({"error": str(e)}), 500
 
 @app.route('/suggest-tests', methods=['POST'])
