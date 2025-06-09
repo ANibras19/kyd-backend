@@ -386,6 +386,7 @@ def explain_test():
                 if meta['name'] == col:
                     selected_types.append(meta['type'])
 
+        # Prompting logic
         if not selected_columns:
             prompt = f"""
 You are a statistical assistant helping a beginner understand a test called '{test_name}' for their dataset '{filename}'.
@@ -402,10 +403,11 @@ Explain clearly:
 1. What does this test do?
 2. Why is it useful?
 3. What column types and combinations are needed to run this test?
-   → Mention types needed (e.g., 1 numeric, 2 categorical) and suggest valid combinations like [A, B], [C, D].
+   - Mention types needed (e.g., 1 numeric, 2 categorical)
+   - Suggest valid combinations like [A, B], [C, D] using real column names.
 4. What chart or visualization can be shown after this test and why?
 
-Avoid greetings or markdown formatting. Use plain beginner-friendly language.
+Avoid greetings or markdown like **. Write clean, simple, plain text.
 """
         else:
             prompt = f"""
@@ -426,14 +428,14 @@ Explain:
 3. What will the test reveal based on selected data?
 4. What chart/visualization will help and why?
 5. Is this selection valid?
-   → If valid, say only: This selection is valid to run the test.
-   → If invalid, explain clearly what to add/remove.
+   - If valid, say: This selection is valid to run the test.
+   - If invalid, explain clearly what needs to be changed.
 
 Also include:
 - Column types required (e.g., 2 categorical or 1 numeric)
-- Valid combinations using column names only if selection is not valid.
+- Suggested valid combinations using column names (e.g., [sales_channel, trip_type])
 
-Avoid greetings and markdown formatting. Use clean, plain beginner-friendly language.
+Avoid greetings, bullet points, or markdown. Use only plain, beginner-friendly text.
 """
 
         # GPT call
@@ -445,24 +447,23 @@ Avoid greetings and markdown formatting. Use clean, plain beginner-friendly lang
 
         full_text = response.choices[0].message.content.strip()
 
-        # Clean intro lines
+        # Clean text
         lines = full_text.split('\n')
         while lines and ("certainly" in lines[0].lower() or lines[0].strip() == ""):
             lines.pop(0)
         clean_text = "\n".join(lines).replace("**", "").strip()
 
         # Determine proceed permission
-        can_proceed = any("selection is valid to run the test" in line.lower() for line in lines)
+        can_proceed = any("selection is valid" in line.lower() for line in lines)
 
-        # Extract recommended column combinations only if selection is not valid
+        # Extract recommended combinations (e.g., [A, B])
         combinations = []
-        if not can_proceed:
-            for line in lines:
-                if '[' in line and ']' in line and ',' in line:
-                    inner = line[line.find('[')+1 : line.find(']')]
-                    cols = [x.strip().strip('"') for x in inner.split(',') if x.strip()]
-                    if len(cols) > 1:
-                        combinations.append(cols)
+        for line in lines:
+            if '[' in line and ']' in line and ',' in line:
+                inner = line[line.find('[')+1 : line.find(']')]
+                cols = [x.strip().strip('"') for x in inner.split(',') if x.strip()]
+                if len(cols) > 1:
+                    combinations.append(cols)
 
         return jsonify({
             "explanation": clean_text,
@@ -471,7 +472,7 @@ Avoid greetings and markdown formatting. Use clean, plain beginner-friendly lang
         })
 
     except Exception as e:
-        print("\U0001f534 /explain-test ERROR:", e)
+        print("\ud83d\udd34 /explain-test ERROR:", e)
         return jsonify({"error": str(e)}), 500
 
 @app.route('/suggest-tests', methods=['POST'])
