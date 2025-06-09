@@ -399,11 +399,11 @@ Here are a few sample rows:
 {preview_info}
 
 Explain clearly:
-1. What does this test do?
-2. Why is it useful?
-3. What column types and combinations are needed to run this test?
+Q1. What does this test do?
+Q2. Why is it useful?
+Q3. What column types and combinations are needed to run this test?
    → Include required types (e.g., 1 numeric + 1 categorical) and give 2–3 valid combinations **inline within this answer** using real column names like [A, B], [X, Y].
-4. What chart or visualization can be shown after this test and why?
+Q4. What chart or visualization can be shown after this test and why?
 
 Avoid greetings or markdown formatting. Keep the explanation clean, beginner-friendly, and avoid repeating lines like "Here’s what this means."
 """
@@ -421,12 +421,12 @@ Here are some preview rows:
 {preview_info}
 
 Explain:
-1. What does this test do?
-2. Why is it useful?
-3. What will the test reveal based on selected data? 
+Q1. What does this test do?
+Q2. Why is it useful?
+Q3. What will the test reveal based on selected data? 
    → Also include (within this answer) required column types (e.g., 2 categorical or 1 numeric), and 2–3 valid combinations like [Gender, Score], [Group, Age] using actual column names.
-4. What chart/visualization will help and why?
-5. Is this selection valid?
+Q4. What chart/visualization will help and why?
+Q5. Is this selection valid?
    → If valid, say only: This selection is valid to run the test.
    → If invalid, explain clearly what to add/remove.
 
