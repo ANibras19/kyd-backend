@@ -381,66 +381,88 @@ def explain_test():
         preview_info = json.dumps(preview_rows, indent=2)
 
         if not selected_columns:
-            # No selection case
             prompt = f"""
-You are a data assistant helping a non-technical user analyze a dataset called '{filename}'.
+You are a statistical assistant helping a beginner user understand a test called "{test_name}" for their dataset "{filename}".
 
-The user has **not selected any columns or groups** yet.
-They are interested in this test: **{test_name}**
+They have not selected any columns yet.
 
-Here is the column metadata of their dataset:
+Here is the column metadata:
 {metadata_info}
 
-Here are a few preview rows:
+Here are a few sample rows from the dataset:
 {preview_info}
 
 Please answer clearly and simply:
 1. What does this test do?
 2. Why is it useful?
 3. What kind of column selection or grouping is required to run this test?
-   → List example column names or types from the metadata that would be valid inputs.
-4. What kind of chart or visualization can be generated after running this test?
-   → Include chart names and explain what will be visualized and why it's helpful.
+   → Give examples using column names/types from the metadata.
+4. What kind of chart or visualization is possible after this test?
+   → Mention chart types and describe what they would show.
 
-Use beginner-friendly language. No technical jargon or formulas.
+Avoid formal greetings like "Certainly!" or "Let's begin." Do NOT use markdown formatting like **bold**. Use plain language.
 """
         else:
-            # With selected columns/groups
             prompt = f"""
-You are a data assistant helping a non-technical user analyze a dataset called '{filename}'.
+You are a statistical assistant helping a beginner user explore their dataset "{filename}" using the test: "{test_name}".
 
-The user has selected the following column groups:
+The user has selected the following columns/groups:
 {selected_info}
 
-They want to run this test: **{test_name}**
-
-Here is the metadata about all columns:
+Here is the metadata for all columns:
 {metadata_info}
 
-Here are a few preview rows from the dataset:
+Here are a few preview rows:
 {preview_info}
 
-Please answer clearly and simply:
+Please explain:
 1. What does this test do?
 2. Why is it useful?
-3. What will the result tell the user about their selected data?
-4. What kind of graph or chart will help visualize the results?
-   → Include chart names and explain what it will show.
-5. What exact columns or grouping structure are required to enable this test?
-   → List required column types (e.g., one numeric + one categorical) and match to the dataset’s actual column names if possible.
+3. What will this test reveal using the selected data?
+4. What kind of chart or visualization can be shown after running this test?
+   → Name suitable charts and what they’ll visualize.
+5. Based on the selected columns and metadata, which columns or data types are required to run this test?
+   → List the required column types and match with dataset column names if possible.
 
-Avoid technical jargon. Write like you're helping a beginner.
+Avoid greetings or phrases like "Certainly!" or "Let's begin". Do NOT use markdown formatting like **bold**. Just write clean, simple explanations.
 """
 
-        # Send prompt to GPT
+        # Send to GPT
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.5
         )
 
-        explanation = response.choices[0].message.content
-        return jsonify({"explanation": explanation})
+        full_reply = response.choices[0].message.content
+
+        # Remove leading filler lines
+        cleaned_reply = full_reply.strip().split('\n')
+        while cleaned_reply and (
+            cleaned_reply[0].lower().startswith("certainly")
+            or "step by step" in cleaned_reply[0].lower()
+            or cleaned_reply[0].strip() == ""
+        ):
+            cleaned_reply.pop(0)
+
+        final_explanation = "\n".join(cleaned_reply).replace("**", "").strip()
+
+        # Extract required column names from section 5 if present
+        required_cols = []
+        for i, line in enumerate(cleaned_reply):
+            if line.strip().startswith("5.") or "required" in line.lower():
+                block = cleaned_reply[i:i+6]
+                for blk_line in block:
+                    if any(col.get("name") in blk_line for col in column_metadata):
+                        for col in column_metadata:
+                            if col["name"] in blk_line and col["name"] not in required_cols:
+                                required_cols.append(col["name"])
+                break
+
+        return jsonify({
+            "explanation": final_explanation,
+            "required_columns": required_cols
+        })
 
     except Exception as e:
         print("🔴 /explain-test ERROR:", e)
