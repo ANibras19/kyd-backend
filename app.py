@@ -442,20 +442,35 @@ Avoid markdown formatting, avoid repeating info from earlier answers, and do not
 
         full_text = response.choices[0].message.content.strip()
 
-        # Clean intro lines
-        lines = full_text.split('\n')
-        while lines and ("certainly" in lines[0].lower() or lines[0].strip() == ""):
-            lines.pop(0)
-        clean_text = "\n".join(lines).replace("**", "").strip()
+        # Normalize and split by Q1–Q5
+        qa_map = {}
+        current_q = None
+        for line in full_text.splitlines():
+            line = line.strip()
+            if line.startswith("Q1.") or line.startswith("Q2.") or line.startswith("Q3.") or line.startswith("Q4.") or line.startswith("Q5."):
+                current_q = line[:2]
+                qa_map[current_q] = line[3:].strip()
+            elif current_q:
+                qa_map[current_q] += '\n' + line
+
+        # Combine to send back clean structured string for frontend
+        cleaned_sections = []
+        for i in range(1, 6):
+            q_key = f"Q{i}"
+            if q_key in qa_map:
+                cleaned_sections.append(f"{q_key}. {qa_map[q_key].strip()}")
+
+        clean_text = "\n\n".join(cleaned_sections).strip()
 
         # Determine proceed permission
-        can_proceed = any("selection is valid to run the test" in line.lower() for line in lines)
+        can_proceed = "Q5" in qa_map and "valid to run the test" in qa_map["Q5"].lower()
 
-        # Extract recommended column combinations only if selection is not valid
+        # Extract valid column combinations from Q3 if invalid
         combinations = []
-        if not can_proceed:
-            for line in lines:
-                if '[' in line and ']' in line and ',' in line:
+        if not can_proceed and "Q3" in qa_map:
+            q3_lines = qa_map["Q3"].split('\n')
+            for line in q3_lines:
+                if '[' in line and ']' in line:
                     inner = line[line.find('[')+1 : line.find(']')]
                     cols = [x.strip().strip('"') for x in inner.split(',') if x.strip()]
                     if len(cols) > 1:
