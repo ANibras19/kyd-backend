@@ -382,87 +382,73 @@ def explain_test():
 
         if not selected_columns:
             prompt = f"""
-You are a statistical assistant helping a beginner user understand a test called "{test_name}" for their dataset "{filename}".
+You are a data assistant helping a non-technical user analyze a dataset called '{filename}'.
 
-They have not selected any columns yet.
+The user has NOT selected any columns or groups.
+They are interested in this test: {test_name}
 
-Here is the column metadata:
+Column metadata:
 {metadata_info}
 
-Here are a few sample rows from the dataset:
+Preview rows:
 {preview_info}
 
 Please answer clearly and simply:
 1. What does this test do?
 2. Why is it useful?
 3. What kind of column selection or grouping is required to run this test?
-   → Give examples using column names/types from the metadata.
-4. What kind of chart or visualization is possible after this test?
-   → Mention chart types and describe what they would show.
+   → Mention types and match to example column names from the metadata.
+4. What kind of chart or visualization can be used?
+   → Include chart names and what they show.
 
-Avoid formal greetings like "Certainly!" or "Let's begin." Do NOT use markdown formatting like **bold**. Use plain language.
+Avoid technical jargon. Explain for a beginner.
 """
         else:
             prompt = f"""
-You are a statistical assistant helping a beginner user explore their dataset "{filename}" using the test: "{test_name}".
+You are a data assistant helping a non-technical user analyze a dataset called '{filename}'.
 
-The user has selected the following columns/groups:
+The user has selected these column groups:
 {selected_info}
 
-Here is the metadata for all columns:
+They want to run this test: {test_name}
+
+Full column metadata:
 {metadata_info}
 
-Here are a few preview rows:
+Preview rows from the dataset:
 {preview_info}
 
-Please explain:
+Write a simple, clear explanation:
 1. What does this test do?
 2. Why is it useful?
-3. What will this test reveal using the selected data?
-4. What kind of chart or visualization can be shown after running this test?
-   → Name suitable charts and what they’ll visualize.
-5. Based on the selected columns and metadata, which columns or data types are required to run this test?
-   → List the required column types and match with dataset column names if possible.
+3. What will the result tell the user about the selected data?
+4. What kind of chart or graph helps visualize the result?
+   → Name the chart and explain what it shows.
+5. Based on the selection, is the current column choice sufficient to run this test?
+   → If yes: say "You selected the right columns. You can proceed."
+   → If no: clearly say which column(s) are missing or extra, and what needs to change.
+   → Be firm if the test CANNOT be run at all with this dataset.
 
-Avoid greetings or phrases like "Certainly!" or "Let's begin". Do NOT use markdown formatting like **bold**. Just write clean, simple explanations.
+Avoid tech terms. Pretend you're explaining to someone without a stats background.
 """
 
-        # Send to GPT
+        # Send prompt to GPT
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.5
         )
 
-        full_reply = response.choices[0].message.content
-
-        # Remove leading filler lines
-        cleaned_reply = full_reply.strip().split('\n')
-        while cleaned_reply and (
-            cleaned_reply[0].lower().startswith("certainly")
-            or "step by step" in cleaned_reply[0].lower()
-            or cleaned_reply[0].strip() == ""
-        ):
-            cleaned_reply.pop(0)
-
-        final_explanation = "\n".join(cleaned_reply).replace("**", "").strip()
-
-        # Extract required column names from section 5 if present
+        explanation = response.choices[0].message.content
         required_cols = []
-        for i, line in enumerate(cleaned_reply):
-            if line.strip().startswith("5.") or "required" in line.lower():
-                block = cleaned_reply[i:i+6]
-                for blk_line in block:
-                    if any(col.get("name") in blk_line for col in column_metadata):
-                        for col in column_metadata:
-                            if col["name"] in blk_line and col["name"] not in required_cols:
-                                required_cols.append(col["name"])
-                break
 
-        return jsonify({
-            "explanation": final_explanation,
-            "required_columns": required_cols
-        })
+        # Extract lines that look like required columns:
+        match = re.findall(r"(?i)required columns? (for this test)?:\s*([\s\S]+?)\n\n", explanation)
+        if match:
+            raw_lines = match[0][1].splitlines()
+            required_cols = [line.strip('-• ":') for line in raw_lines if len(line.strip()) > 0]
+
+        return jsonify({"explanation": explanation, "required_columns": required_cols})
 
     except Exception as e:
         print("🔴 /explain-test ERROR:", e)
