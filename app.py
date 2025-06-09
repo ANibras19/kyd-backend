@@ -370,26 +370,69 @@ def explain_test():
         data = request.get_json()
         username = data.get('username')
         filename = data.get('filename')
-        selected_groups = data.get('selected_groups')
-        column_metadata = data.get('column_metadata')
+        selected_groups = data.get('selected_groups', {})
+        column_metadata = data.get('column_metadata', [])
         test_name = data.get('test_name')
-        preview_rows = data.get('previewRows')
+        preview_rows = data.get('previewRows', [])
 
-        prompt = f"""
-You are a data assistant helping a non-technical user analyze data in a file named '{filename}'.
-They have selected column groups: {selected_groups}
-They have metadata about columns: {column_metadata}
-They have preview rows: {preview_rows}
-They want to run this test: '{test_name}'.
+        selected_columns = list(selected_groups.keys())
+        selected_info = json.dumps(selected_groups, indent=2)
+        metadata_info = json.dumps(column_metadata, indent=2)
+        preview_info = json.dumps(preview_rows, indent=2)
 
-Please answer simply:
+        if not selected_columns:
+            # No selection case
+            prompt = f"""
+You are a data assistant helping a non-technical user analyze a dataset called '{filename}'.
+
+The user has **not selected any columns or groups** yet.
+They are interested in this test: **{test_name}**
+
+Here is the column metadata of their dataset:
+{metadata_info}
+
+Here are a few preview rows:
+{preview_info}
+
+Please answer clearly and simply:
 1. What does this test do?
 2. Why is it useful?
-3. What will the result tell you?
+3. What kind of column selection or grouping is required to run this test?
+   → List example column names or types from the metadata that would be valid inputs.
+4. What kind of chart or visualization can be generated after running this test?
+   → Include chart names and explain what will be visualized and why it's helpful.
 
-Avoid technical jargon. Explain like you're helping a beginner. The language must be simple and clear. Your explanation will be based on the inputs you received being taken as contxt, or in other words, you will give accurate and relatable response based on the inputs. 
+Use beginner-friendly language. No technical jargon or formulas.
+"""
+        else:
+            # With selected columns/groups
+            prompt = f"""
+You are a data assistant helping a non-technical user analyze a dataset called '{filename}'.
+
+The user has selected the following column groups:
+{selected_info}
+
+They want to run this test: **{test_name}**
+
+Here is the metadata about all columns:
+{metadata_info}
+
+Here are a few preview rows from the dataset:
+{preview_info}
+
+Please answer clearly and simply:
+1. What does this test do?
+2. Why is it useful?
+3. What will the result tell the user about their selected data?
+4. What kind of graph or chart will help visualize the results?
+   → Include chart names and explain what it will show.
+5. What exact columns or grouping structure are required to enable this test?
+   → List required column types (e.g., one numeric + one categorical) and match to the dataset’s actual column names if possible.
+
+Avoid technical jargon. Write like you're helping a beginner.
 """
 
+        # Send prompt to GPT
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
