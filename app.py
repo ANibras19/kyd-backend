@@ -380,12 +380,6 @@ def explain_test():
         preview_info = json.dumps(preview_rows, indent=2)
         selected_info = json.dumps(selected_groups, indent=2)
 
-        selected_types = []
-        for col in selected_columns:
-            for meta in column_metadata:
-                if meta['name'] == col:
-                    selected_types.append(meta['type'])
-
         if not selected_columns:
             prompt = f"""
 You are a statistical assistant helping a beginner understand a test called '{test_name}' for their dataset '{filename}'.
@@ -398,14 +392,18 @@ Here is the column metadata:
 Here are a few sample rows:
 {preview_info}
 
-Explain clearly:
-Q1. What does this test do?
-Q2. Why is it useful?
-Q3. What column types and combinations are needed to run this test?
-   → Include required types (e.g., 1 numeric + 1 categorical) and give 2–3 valid combinations **inline within this answer** using real column names like [A, B], [X, Y].
-Q4. What chart or visualization can be shown after this test and why?
+Respond with exactly 5 clearly numbered sections using the following labels:
 
-Avoid greetings or markdown formatting. Keep the explanation clean, beginner-friendly, and avoid repeating lines like "Here’s what this means."
+Q1. What does this test do?  
+Q2. Why is it useful?  
+Q3. What column types and combinations are needed to run this test?  
+   → Include 2–3 valid combinations inline like [Gender, Score], [A, B] using real column names.  
+Q4. What chart or visualization can be shown after this test and why?  
+Q5. Is this selection valid?  
+   → If valid, say only: This selection is valid to run the test.  
+   → If invalid, explain clearly what to add/remove.
+
+Avoid greetings or markdown formatting. Output each Q exactly as shown.
 """
         else:
             prompt = f"""
@@ -420,17 +418,18 @@ Here is the metadata for all columns:
 Here are some preview rows:
 {preview_info}
 
-Explain:
-Q1. What does this test do?
-Q2. Why is it useful?
-Q3. What will the test reveal based on selected data? 
-   → Also include (within this answer) required column types (e.g., 2 categorical or 1 numeric), and 2–3 valid combinations like [Gender, Score], [Group, Age] using actual column names.
-Q4. What chart/visualization will help and why?
-Q5. Is this selection valid?
-   → If valid, say only: This selection is valid to run the test.
+Respond with exactly 5 clearly numbered sections using the following labels:
+
+Q1. What does this test do?  
+Q2. Why is it useful?  
+Q3. What will the test reveal based on selected data?  
+   → Also include required types (e.g., 2 categorical or 1 numeric) and give 2–3 valid combinations like [Gender, Score], [Group, Age] using actual column names.  
+Q4. What chart/visualization will help and why?  
+Q5. Is this selection valid?  
+   → If valid, say only: This selection is valid to run the test.  
    → If invalid, explain clearly what to add/remove.
 
-Avoid markdown formatting, avoid repeating info from earlier answers, and do not move combinations outside answer 3.
+Avoid greetings or markdown formatting. Output each Q exactly as shown.
 """
 
         # GPT call
