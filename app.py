@@ -386,7 +386,6 @@ def explain_test():
                 if meta['name'] == col:
                     selected_types.append(meta['type'])
 
-        # Prompting logic
         if not selected_columns:
             prompt = f"""
 You are a statistical assistant helping a beginner understand a test called '{test_name}' for their dataset '{filename}'.
@@ -403,7 +402,7 @@ Explain clearly:
 1. What does this test do?
 2. Why is it useful?
 3. What column types and combinations are needed to run this test?
-   → Mention types needed (e.g., 1 numeric, 2 categorical) and suggest valid combinations like [A, B], [C, D].
+   → Mention types needed (e.g., 1 numeric, 2 categorical) and suggest valid combinations like [A, B], [C, D] directly inside this answer.
 4. What chart or visualization can be shown after this test and why?
 
 No greetings or markdown formatting. Use simple, clean language.
@@ -427,17 +426,16 @@ Explain:
 3. What will the test reveal based on selected data?
 4. What chart/visualization will help and why?
 5. Is this selection valid?
-   → If valid, say: "This selection is valid to run the test."
-   → If invalid, explain what to change.
+   → If valid, say: "This selection is valid to run the test." and do not add anything else.
+   → If invalid, explain what to change and which columns would make it valid.
 
-Also include:
-- Column types required (e.g., 2 categorical or 1 numeric)
-- Suggested valid combinations using column names (e.g., [sales_channel, trip_type])
+Also include in answer 3:
+- What column types are needed (e.g., numeric, categorical)
+- Example combinations from metadata using column names (e.g., [sales_channel, trip_type])
 
-Avoid greetings and markdown. Plain, beginner-friendly language only.
+Avoid greetings and markdown. Use plain, beginner-friendly language.
 """
 
-        # GPT call
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
@@ -445,24 +443,23 @@ Avoid greetings and markdown. Plain, beginner-friendly language only.
         )
 
         full_text = response.choices[0].message.content.strip()
-
-        # Clean up
         lines = full_text.split('\n')
         while lines and ("certainly" in lines[0].lower() or lines[0].strip() == ""):
             lines.pop(0)
-        clean_text = "\n".join(lines).replace("**", "").strip()
 
-        # Determine proceed permission
+        clean_text = "\n".join(lines).replace("**", "").strip()
         can_proceed = any("selection is valid" in line.lower() for line in lines)
 
-        # Extract recommended combinations (e.g., [A, B])
+        # Parse valid combinations inside brackets like [A, B]
         combinations = []
         for line in lines:
             if '[' in line and ']' in line and ',' in line:
-                inner = line[line.find('[')+1 : line.find(']')]
-                cols = [x.strip().strip('"') for x in inner.split(',') if x.strip()]
-                if len(cols) > 1:
-                    combinations.append(cols)
+                start = line.find('[') + 1
+                end = line.find(']')
+                combo = line[start:end].split(',')
+                pair = [col.strip().strip('"') for col in combo if col.strip()]
+                if len(pair) > 1:
+                    combinations.append(pair)
 
         return jsonify({
             "explanation": clean_text,
