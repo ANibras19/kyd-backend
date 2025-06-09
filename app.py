@@ -376,94 +376,100 @@ def explain_test():
         preview_rows = data.get('previewRows', [])
 
         selected_columns = list(selected_groups.keys())
-        selected_info = json.dumps(selected_groups, indent=2)
         metadata_info = json.dumps(column_metadata, indent=2)
         preview_info = json.dumps(preview_rows, indent=2)
+        selected_info = json.dumps(selected_groups, indent=2)
 
+        # Determine selected types for logic
+        selected_types = []
+        for col in selected_columns:
+            for meta in column_metadata:
+                if meta['name'] == col:
+                    selected_types.append(meta['type'])
+
+        # === GPT Prompt ===
         if not selected_columns:
             prompt = f"""
-You are a statistical assistant helping a beginner user understand a test called "{test_name}" for their dataset "{filename}".
+You are a statistical assistant helping a beginner understand a test called '{test_name}' for their dataset '{filename}'.
 
-They have not selected any columns yet.
+They have NOT selected any columns yet.
 
 Here is the column metadata:
 {metadata_info}
 
-Here are a few sample rows from the dataset:
+Here are a few sample rows:
 {preview_info}
 
-Please answer clearly:
+Please explain in simple terms:
 1. What does this test do?
 2. Why is it useful?
-3. What kind of column selection or grouping is required to run this test?
-   → Give examples using actual column names/types from metadata.
+3. What kind of column types or groupings are required to run this test?
+   → Mention number and type (e.g., 1 numeric, 2 categorical).
+   → Suggest 2–3 column names from the metadata as examples.
 4. What kind of chart or visualization is possible after this test?
-   → Mention chart types and explain what they show.
+   → Include chart types and what they visualize.
 
-Avoid greetings like "Certainly!" or "Let’s begin". Do not use markdown formatting like **bold**. Use plain English, beginner-level.
+Do NOT include greetings like "Certainly" or markdown formatting like **bold**.
+Keep your response focused and friendly.
 """
         else:
             prompt = f"""
-You are a statistical assistant helping a beginner user analyze their dataset "{filename}" using the test: "{test_name}".
+You are a statistical assistant helping a beginner explore a dataset '{filename}' using the test: '{test_name}'.
 
-The user has selected the following column groups:
+The user has selected these column groups:
 {selected_info}
 
-Here is metadata about all columns:
+Here is the metadata for all columns:
 {metadata_info}
 
-Here are a few sample rows from the dataset:
+Here are some preview rows:
 {preview_info}
 
-Clearly answer:
+Please explain:
 1. What does this test do?
 2. Why is it useful?
-3. What will this test reveal using the selected data?
-4. What kind of chart or visualization can be shown after running this test?
-   → Include chart names and explain what they'll visualize.
-5. What column types or structure are required to perform this test?
-   → Based on the user's selection and metadata, say whether the selected columns are sufficient or if any should be unselected or added.
-   → Mention exact column names where possible.
+3. What will the test reveal using the selected columns?
+4. What kind of chart or visualization can be shown after the test?
+5. Based on their selection and metadata, is this selection valid?
+   → If valid, say "This selection is valid to run the test."
+   → If invalid, say what to add/remove.
 
-Avoid phrases like "Certainly!" or "Step by step", and never use markdown formatting like **bold**.
+Also include:
+- What kind of column types are required (e.g., 2 categorical)
+- Suggest 2–3 matching columns from metadata as examples
+
+Avoid greetings or markdown. Plain beginner-friendly language only.
 """
 
-        # Call OpenAI
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.5
         )
 
-        full_reply = response.choices[0].message.content.strip()
+        full_text = response.choices[0].message.content
 
-        # Remove filler opening lines
-        lines = full_reply.split('\n')
-        while lines and (
-            lines[0].strip() == "" or
-            lines[0].lower().startswith("certainly") or
-            "let’s break" in lines[0].lower() or
-            "step by step" in lines[0].lower()
-        ):
+        # === Clean Response ===
+        lines = full_text.strip().split('\n')
+        while lines and ("certainly" in lines[0].lower() or lines[0].strip() == ""):
             lines.pop(0)
+        clean_text = "\n".join(lines).replace("**", "").strip()
 
-        cleaned = "\n".join(lines).replace("**", "").strip()
+        # === Extract validity ===
+        can_proceed = any("selection is valid" in line.lower() for line in lines)
 
-        # Extract required columns from section 5
-        required_cols = []
-        for i, line in enumerate(lines):
-            if line.strip().startswith("5.") or "required" in line.lower():
-                for offset in range(1, 7):  # look up to 6 lines ahead
-                    if i + offset < len(lines):
-                        l = lines[i + offset]
-                        for col in column_metadata:
-                            if col['name'] in l and col['name'] not in required_cols:
-                                required_cols.append(col['name'])
-                break
+        # === Extract 2–3 recommended column names ===
+        possible_cols = []
+        for meta in column_metadata:
+            for line in lines:
+                if meta['name'] in line and meta['name'] not in possible_cols:
+                    possible_cols.append(meta['name'])
+        required_examples = possible_cols[:3]
 
         return jsonify({
-            "explanation": cleaned,
-            "required_columns": required_cols
+            "explanation": clean_text,
+            "required_columns": required_examples,
+            "can_proceed": can_proceed
         })
 
     except Exception as e:
