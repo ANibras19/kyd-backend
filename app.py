@@ -402,10 +402,10 @@ Explain clearly:
 1. What does this test do?
 2. Why is it useful?
 3. What column types and combinations are needed to run this test?
-   → Mention types needed (e.g., 1 numeric, 2 categorical) and suggest valid combinations like [A, B], [C, D] directly inside this answer.
+   → Mention types needed (e.g., 1 numeric, 2 categorical) and suggest valid combinations like [A, B], [C, D].
 4. What chart or visualization can be shown after this test and why?
 
-No greetings or markdown formatting. Use simple, clean language.
+Avoid greetings or markdown formatting. Use plain beginner-friendly language.
 """
         else:
             prompt = f"""
@@ -426,16 +426,17 @@ Explain:
 3. What will the test reveal based on selected data?
 4. What chart/visualization will help and why?
 5. Is this selection valid?
-   → If valid, say: "This selection is valid to run the test." and do not add anything else.
-   → If invalid, explain what to change and which columns would make it valid.
+   → If valid, say only: This selection is valid to run the test.
+   → If invalid, explain clearly what to add/remove.
 
-Also include in answer 3:
-- What column types are needed (e.g., numeric, categorical)
-- Example combinations from metadata using column names (e.g., [sales_channel, trip_type])
+Also include:
+- Column types required (e.g., 2 categorical or 1 numeric)
+- Valid combinations using column names only if selection is not valid.
 
-Avoid greetings and markdown. Use plain, beginner-friendly language.
+Avoid greetings and markdown formatting. Use clean, plain beginner-friendly language.
 """
 
+        # GPT call
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
@@ -443,23 +444,25 @@ Avoid greetings and markdown. Use plain, beginner-friendly language.
         )
 
         full_text = response.choices[0].message.content.strip()
+
+        # Clean intro lines
         lines = full_text.split('\n')
         while lines and ("certainly" in lines[0].lower() or lines[0].strip() == ""):
             lines.pop(0)
-
         clean_text = "\n".join(lines).replace("**", "").strip()
-        can_proceed = any("selection is valid" in line.lower() for line in lines)
 
-        # Parse valid combinations inside brackets like [A, B]
+        # Determine proceed permission
+        can_proceed = any("selection is valid to run the test" in line.lower() for line in lines)
+
+        # Extract recommended column combinations only if selection is not valid
         combinations = []
-        for line in lines:
-            if '[' in line and ']' in line and ',' in line:
-                start = line.find('[') + 1
-                end = line.find(']')
-                combo = line[start:end].split(',')
-                pair = [col.strip().strip('"') for col in combo if col.strip()]
-                if len(pair) > 1:
-                    combinations.append(pair)
+        if not can_proceed:
+            for line in lines:
+                if '[' in line and ']' in line and ',' in line:
+                    inner = line[line.find('[')+1 : line.find(']')]
+                    cols = [x.strip().strip('"') for x in inner.split(',') if x.strip()]
+                    if len(cols) > 1:
+                        combinations.append(cols)
 
         return jsonify({
             "explanation": clean_text,
@@ -468,7 +471,7 @@ Avoid greetings and markdown. Use plain, beginner-friendly language.
         })
 
     except Exception as e:
-        print("\ud83d\udd34 /explain-test ERROR:", e)
+        print("\U0001f534 /explain-test ERROR:", e)
         return jsonify({"error": str(e)}), 500
 
 @app.route('/suggest-tests', methods=['POST'])
