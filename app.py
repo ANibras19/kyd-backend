@@ -392,11 +392,12 @@ Here is the column metadata:
 Here are a few sample rows:
 {preview_info}
 
-Respond with exactly 5 clearly numbered sections using the following labels:
+Explain contextually with exactly 5 clearly numbered sections using the following labels:
 
 Q1. What does this test do?  
 Q2. Why is it useful?  
-Q3. What column types and combinations are needed to run this test?  
+Q3. What column types and combinations are needed to run this test?
+   → If the test requires only one column, say: "This test requires one [type] column. You may choose from: col1, col2, col3."   
    → Include 2–3 valid combinations inline like [Gender, Score], [A, B] using real column names.  
 Q4. What chart or visualization can be shown after this test and why?  
 Q5. Is this selection valid?  
@@ -418,7 +419,7 @@ Here is the metadata for all columns:
 Here are some preview rows:
 {preview_info}
 
-Respond with exactly 5 clearly numbered sections using the following labels:
+Explain contextually with exactly 5 clearly numbered sections using the following labels:
 
 Q1. What does this test do?  
 Q2. Why is it useful?  
