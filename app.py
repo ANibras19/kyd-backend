@@ -399,12 +399,15 @@ Respond using exactly 5 numbered questions with detailed answers:
 
 Q1. What does this test do?  
 Q2. Why is it useful for this dataset?  
-   → Be specific: mention what patterns or issues this test can detect in this dataset.  
+   → Use real column names and sample values to explain **what this test can reveal**, and **why those findings matter**. For example, how it could help identify trends, inform decisions, or uncover problems hidden in the data.  
 Q3. What column types and combinations are needed to run this test?  
+   → Clearly describe the required types (e.g., 1 numeric, 2 categorical).  
    → If the test requires only one column, say: "This test requires one [type] column. You may choose from: col1, col2, col3."  
-   → If the test needs multiple, include 2–3 valid combinations using real column names like [Gender, Score]  
+   → If the test needs multiple, include 2–3 valid combinations using real column names like [Gender, Score].  
+   → Explain briefly what each combination would help the user understand in this specific dataset.  
 Q4. What chart or visualization can be shown after this test and why?  
-   → Tailor your answer to this data and test.  
+   → Suggest a visual that suits the data and test type (e.g., histogram, boxplot, bar chart, mosaic plot).  
+   → Explain what the visual will show and **how it helps interpret** the test result — such as patterns, distributions, or outliers the user should look for.  
 Q5. Is this selection valid?  
    → Since the user has not selected columns, say: "The selection is incomplete. Please choose the required columns to proceed."
 
@@ -430,11 +433,14 @@ Respond using exactly 5 numbered questions with detailed answers:
 
 Q1. What does this test do?  
 Q2. Why is it useful for this dataset?  
-   → Use examples from the selected columns or values to explain real-world usefulness.  
+   → Use real column names and sample values to explain **what this test can reveal**, and **why those findings matter**. For example, how it could help identify trends, inform decisions, or uncover problems hidden in the data.  
 Q3. What will the test reveal based on selected data?  
-   → Also include required types (e.g., 2 categorical or 1 numeric), and give 2–3 valid combinations using real column names.  
+   → Clearly describe the required types (e.g., 2 categorical or 1 numeric).  
+   → Include 2–3 valid combinations using real column names like [Gender, Score].  
+   → Explain briefly what each combination would help the user understand in this specific dataset.  
 Q4. What chart or visualization will help and why?  
    → Suggest one or more visuals suited for this test and dataset.  
+   → Explain what it will show and how it supports understanding of the result (e.g., distribution, patterns, or relationships).  
 Q5. Is this selection valid?  
    → If valid, say only: This selection is valid to run the test.  
    → If invalid, explain clearly what to add or remove.
