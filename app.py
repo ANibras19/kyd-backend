@@ -382,55 +382,64 @@ def explain_test():
 
         if not selected_columns:
             prompt = f"""
-You are a statistical assistant helping a beginner understand a test called '{test_name}' for their dataset '{filename}'.
+You are a statistical assistant helping a beginner understand how to use the test: '{test_name}' on their dataset named '{filename}'.
 
 They have NOT selected any columns yet.
 
-Here is the column metadata:
+You are provided with:
+• Column metadata (types and names):  
 {metadata_info}
 
-Here are a few sample rows:
+• A few preview rows from the dataset:  
 {preview_info}
 
-Explain contextually with exactly 5 clearly numbered sections using the following labels:
+Your task is to explain the test contextually based on this actual dataset — referencing relevant column names and example values whenever useful. Write in a friendly tone for a beginner user.
+
+Respond using exactly 5 numbered questions with detailed answers:
 
 Q1. What does this test do?  
-Q2. Why is it useful?  
-Q3. What column types and combinations are needed to run this test?
-   → If the test requires only one column, say: "This test requires one [type] column. You may choose from: col1, col2, col3."   
-   → Include 2–3 valid combinations inline like [Gender, Score], [A, B] using real column names.  
+Q2. Why is it useful for this dataset?  
+   → Be specific: mention what patterns or issues this test can detect in this dataset.  
+Q3. What column types and combinations are needed to run this test?  
+   → If the test requires only one column, say: "This test requires one [type] column. You may choose from: col1, col2, col3."  
+   → If the test needs multiple, include 2–3 valid combinations using real column names like [Gender, Score]  
 Q4. What chart or visualization can be shown after this test and why?  
+   → Tailor your answer to this data and test.  
 Q5. Is this selection valid?  
-   → If valid, say only: This selection is valid to run the test.  
-   → If invalid, explain clearly what to add/remove.
+   → Since the user has not selected columns, say: "The selection is incomplete. Please choose the required columns to proceed."
 
-Avoid greetings or markdown formatting. Output each Q exactly as shown.
+Avoid greetings and markdown. Output each Q exactly as shown.
 """
         else:
             prompt = f"""
-You are a statistical assistant helping a beginner explore a dataset '{filename}' using the test: '{test_name}'.
+You are a statistical assistant helping a beginner apply the test: '{test_name}' on their dataset named '{filename}'.
 
-The user selected these columns:
+The user selected these columns for analysis:
 {selected_info}
 
-Here is the metadata for all columns:
+You are also provided with:
+• Column metadata (types and names):  
 {metadata_info}
 
-Here are some preview rows:
+• A few preview rows from the dataset:  
 {preview_info}
 
-Explain contextually with exactly 5 clearly numbered sections using the following labels:
+Your job is to explain how this test works using the actual dataset, the selected columns, and relevant values.
+
+Respond using exactly 5 numbered questions with detailed answers:
 
 Q1. What does this test do?  
-Q2. Why is it useful?  
+Q2. Why is it useful for this dataset?  
+   → Use examples from the selected columns or values to explain real-world usefulness.  
 Q3. What will the test reveal based on selected data?  
-   → Also include required types (e.g., 2 categorical or 1 numeric) and give 2–3 valid combinations like [Gender, Score], [Group, Age] using actual column names.  
-Q4. What chart/visualization will help and why?  
+   → Also include required types (e.g., 2 categorical or 1 numeric), and give 2–3 valid combinations using real column names.  
+Q4. What chart or visualization will help and why?  
+   → Suggest one or more visuals suited for this test and dataset.  
 Q5. Is this selection valid?  
    → If valid, say only: This selection is valid to run the test.  
-   → If invalid, explain clearly what to add/remove.
+   → If invalid, explain clearly what to add or remove.
 
-Avoid greetings or markdown formatting. Output each Q exactly as shown.
+Avoid greetings and markdown. Output each Q exactly as shown.
 """
 
         # GPT call
