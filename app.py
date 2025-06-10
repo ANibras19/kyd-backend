@@ -615,4 +615,4 @@ Do NOT invent new tests. Do NOT return explanations. ONLY return test names orga
 
 if __name__ == '__main__':
     from waitress import serve
-    serve(app, host='0.0.0.0', port=5000)
+    serve(app, host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
